@@ -67,6 +67,7 @@ a{text-decoration:none;color:inherit}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 /* UTIL */
@@ -1524,6 +1525,9 @@ const DB = {
     { id:'u2', role:'rider', email:'chukwu@demo.ng', password:'demo123', firstName:'Chukwuemeka', lastName:'Obi', phone:'+234 813 456 7890', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 443 TK', walletBalance:68400, online:true, rating:4.9, deliveriesTotal:287, deliveriesToday:7, status:'active', warnings:[], joinedAt:'2023-09-04' },
     { id:'u3', role:'vendor', email:'nkechi@demo.ng', password:'demo123', firstName:'Nkechi', lastName:'Fashola', bizName:"Nkechi's Fashion Store", bizType:'Fashion & Clothing', phone:'+234 802 987 6543', city:'Lagos', walletBalance:480000, walletId:'BIZ-SWD-0018', status:'active', warnings:[], joinedAt:'2023-11-20' },
     { id:'u4', role:'admin', email:'admin@swift.ng', password:'admin123', firstName:'Mitch', lastName:'Admin' },
+    { id:'u5', role:'rider', email:'ibrahim@demo.ng', password:'demo123', firstName:'Ibrahim', lastName:'Musa', phone:'+234 802 345 6789', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 001 IM', walletBalance:45000, walletId:'SWD-R-00502', online:false, rating:4.7, deliveriesTotal:198, deliveriesToday:5, status:'active', warnings:[], joinedAt:'2024-02-10' },
+    { id:'u6', role:'rider', email:'fatima@demo.ng', password:'demo123', firstName:'Fatima', lastName:'Abubakar', phone:'+234 706 789 0123', city:'Abuja', vehicle:'Car', plate:'ABJ 220 FA', walletBalance:38000, walletId:'SWD-R-00503', online:false, rating:4.9, deliveriesTotal:145, deliveriesToday:4, status:'active', warnings:[], joinedAt:'2024-03-01' },
+    { id:'u7', role:'rider', email:'emeka@demo.ng', password:'demo123', firstName:'Emeka', lastName:'Ogundele', phone:'+234 816 543 2100', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 776 EO', walletBalance:22000, walletId:'SWD-R-00504', online:false, rating:4.6, deliveriesTotal:89, deliveriesToday:0, status:'warned', warnings:[{reason:'Late delivery complaint x2',date:'2024-12-10',by:'Admin'}], joinedAt:'2024-05-18' },
   ],
   orders: [
     { id:'SWD-290441', customerId:'u1', riderId:'u2', from:'Lagos Island', fromCity:'Lagos', to:'Victoria Island', toCity:'Lagos', recipient:'Tunde Badmus', recipientPhone:'+234 806 111 2222', desc:'Clothing package', weight:1.5, size:'medium', type:'standard', status:'Out for Delivery', amount:2800, insurance:500, createdAt: new Date(Date.now()-5400000).toISOString(), eta:'~18 mins', progress:72, isVendor:false },
@@ -1583,6 +1587,28 @@ function updateRiderNotifBadge() {
   const count = getRiderUnreadCount(currentUser.id);
   const dot = document.getElementById('r-notif-dot');
   if (dot) dot.style.display = count>0?'block':'none';
+}
+
+function showNewOrderAlert(order) {
+  // Remove any existing alert
+  const existing = document.getElementById('new-order-alert');
+  if (existing) existing.remove();
+  const alert = document.createElement('div');
+  alert.id = 'new-order-alert';
+  alert.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:8888;background:var(--navy);color:#fff;border-radius:16px;padding:14px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.35);border:1.5px solid var(--orange);min-width:260px;max-width:90vw;animation:slideDown .3s ease forwards;cursor:pointer';
+  alert.innerHTML = `
+    <div style="width:40px;height:40px;background:var(--orange-lt);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📦</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.5px">New Order!</div>
+      <div style="font-size:13px;font-weight:600;margin-top:1px">${order.fromCity} → ${order.toCity}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.55)">₦${Math.round(order.amount*0.7).toLocaleString()} payout · Tap to view</div>
+    </div>
+    <div style="font-size:18px;flex-shrink:0">✕</div>
+  `;
+  alert.onclick = () => { alert.remove(); showPane('r','dashboard',null); };
+  document.body.appendChild(alert);
+  // Auto-dismiss after 6 seconds
+  setTimeout(()=>{ if(alert.parentNode){ alert.style.animation='slideDown .3s ease reverse'; setTimeout(()=>alert.remove(),300); } }, 6000);
 }
 
 // Seed rider list from users
@@ -1669,6 +1695,18 @@ async function loadDBFromStorage() {
         Object.assign(TRANSACTIONS, tSnap.data().data);
       }
     }
+
+    // Migration: ensure rider accounts exist in DB.users (in case seeded before this fix)
+    const extraRiders = [
+      { id:'u5', role:'rider', email:'ibrahim@demo.ng', password:'demo123', firstName:'Ibrahim', lastName:'Musa', phone:'+234 802 345 6789', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 001 IM', walletBalance:45000, walletId:'SWD-R-00502', online:false, rating:4.7, deliveriesTotal:198, deliveriesToday:5, status:'active', warnings:[], joinedAt:'2024-02-10' },
+      { id:'u6', role:'rider', email:'fatima@demo.ng', password:'demo123', firstName:'Fatima', lastName:'Abubakar', phone:'+234 706 789 0123', city:'Abuja', vehicle:'Car', plate:'ABJ 220 FA', walletBalance:38000, walletId:'SWD-R-00503', online:false, rating:4.9, deliveriesTotal:145, deliveriesToday:4, status:'active', warnings:[], joinedAt:'2024-03-01' },
+      { id:'u7', role:'rider', email:'emeka@demo.ng', password:'demo123', firstName:'Emeka', lastName:'Ogundele', phone:'+234 816 543 2100', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 776 EO', walletBalance:22000, walletId:'SWD-R-00504', online:false, rating:4.6, deliveriesTotal:89, deliveriesToday:0, status:'warned', warnings:[{reason:'Late delivery complaint x2',date:'2024-12-10',by:'Admin'}], joinedAt:'2024-05-18' },
+    ];
+    let migrated = false;
+    extraRiders.forEach(r => {
+      if (!DB.users.find(u=>u.id===r.id)) { DB.users.push(r); migrated = true; }
+    });
+    if (migrated) { console.log('[SWD] Migrated rider accounts to DB.users'); await _flushToDB(); }
 
     setMsg('Starting live sync...');
     _attachListeners();
@@ -1967,6 +2005,13 @@ function loginSuccess(role) {
 function doLogout() {
   stopPolling();
   _detachListeners();
+  // Set rider offline immediately before logging out
+  if (currentUser?.role === 'rider') {
+    const rObj = DB.riders.find(r=>r.id===currentUser.id);
+    if (rObj) rObj.online = false;
+    currentUser.online = false;
+    _flushToDB();
+  }
   currentUser = null;
   try { sessionStorage.removeItem('swd_session'); } catch(e) {}
   toast('Signed out. See you soon!');
@@ -2203,11 +2248,11 @@ function placeVendorOrder() {
 
 // Simulate a delivery progressing over time
 function simulateOrderProgress(orderId) {
+  // Stop at 'Out for Delivery' — only the rider's POD (confirmPOD) can set Delivered
   const steps = [
     { status:'Placed',           progress:5,   eta:'~45 mins', delay:0 },
     { status:'In Transit',       progress:30,  eta:'~35 mins', delay:8000 },
-    { status:'Out for Delivery', progress:72,  eta:'~18 mins', delay:20000 },
-    { status:'Delivered',        progress:100, eta:'Done',     delay:40000 },
+    { status:'Out for Delivery', progress:75,  eta:'~15 mins', delay:20000 },
   ];
   steps.forEach(({ status, progress, eta, delay }) => {
     setTimeout(()=>{
@@ -2215,15 +2260,9 @@ function simulateOrderProgress(orderId) {
       if (!o || o.status==='Delivered') return;
       o.status = status; o.progress = progress; o.eta = eta;
       if (status==='In Transit') {
-        const availableRider = DB.riders.find(r=>r.online);
-        if (availableRider) o.riderId = availableRider.id;
+        // riderId already set by riderAccept
       }
-      if (status==='Delivered') {
-        const rider = DB.riders.find(r=>r.id===o.riderId);
-        if (rider) { rider.deliveriesToday = (rider.deliveriesToday||0)+1; rider.walletBalance += Math.round(o.amount*0.7); }
-        addNotification(`✅ Order #${orderId} delivered!`);
-        saveDB();
-      }
+      // Delivery is confirmed only via rider's POD — not auto-simulated
       // Refresh visible pane
       if (currentUser?.role==='customer') { renderCustomerDash(); renderHistory(); }
       if (currentUser?.role==='vendor') { renderVendorDash(); renderVendorOrders(); }
@@ -2501,8 +2540,13 @@ function initRider() {
   const u = currentUser;
   setInner('r-greeting',`Hey ${u.firstName} 🏍️`);
   setInner('r-avatar',initials(u.firstName,u.lastName));
-  riderOnline = u.online !== false;
+  // Auto-set online when rider logs in
+  u.online = true;
+  const rObj = DB.riders.find(r=>r.id===u.id);
+  if (rObj) rObj.online = true;
+  riderOnline = true;
   updateOnlineToggle();
+  saveDB();
   renderRiderDash();
   setTimeout(updateRiderNotifBadge,100);
 }
@@ -2545,26 +2589,50 @@ function renderRiderDash() {
       </div>`;
   } else if (activeEl) { activeEl.style.display='none'; }
 
-  // Queue
-  const pending = DB.orders.filter(o=>o.status==='Placed'&&!o.riderId).slice(0,3);
+  // Queue — show ALL unassigned Placed orders (no slice cap), card layout for mobile
+  const pending = DB.orders.filter(o=>o.status==='Placed'&&!o.riderId);
   setInner('r-queue-lbl',`${pending.length} pending`);
   setInner('r-queue-badge',pending.length||'');
   const queueEl = document.getElementById('r-queue-list');
   if (queueEl) {
-    if (!pending.length) { queueEl.innerHTML='<div class="empty"><div class="empty-ico">🏍️</div><p>No pending orders right now.<br>Stay online to receive assignments.</p></div>'; }
-    else {
-      queueEl.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Order</th><th>Route</th><th>Dist.</th><th>Payout</th><th>Action</th></tr></thead><tbody>${
-        pending.map(o=>`
-          <tr>
-            <td class="tbl-mono">#${o.id}</td>
-            <td><div class="tbl-route">${o.fromCity}<span class="tbl-arrow"> → </span>${o.toCity}</div></td>
-            <td style="font-size:11px;color:var(--muted)">${(2+Math.random()*6).toFixed(1)} km</td>
-            <td style="color:var(--green);font-weight:700">₦${Math.round(o.amount*0.7).toLocaleString()}</td>
-            <td><div style="display:flex;gap:6px">
-              <button class="btn btn-sm btn-primary" onclick="riderAccept('${o.id}')">Accept</button>
-              <button class="btn btn-sm btn-danger" onclick="riderDecline('${o.id}')">Decline</button>
-            </div></td>
-          </tr>`).join('')}</tbody></table></div>`;
+    if (!pending.length) {
+      queueEl.innerHTML='<div class="empty"><div class="empty-ico">🏍️</div><p>No pending orders right now.<br>Stay online to receive assignments.</p></div>';
+    } else {
+      // Show new order popup toast if count increased since last render
+      const prevCount = parseInt(queueEl.dataset.prevCount||'0');
+      if (pending.length > prevCount && prevCount > 0) {
+        showNewOrderAlert(pending[0]);
+      }
+      queueEl.dataset.prevCount = pending.length;
+      queueEl.innerHTML = pending.map(o=>`
+        <div style="background:var(--card);border:1.5px solid var(--border);border-radius:var(--r-lg);padding:15px 16px;margin-bottom:10px;transition:border-color .2s" 
+             onmouseover="this.style.borderColor='var(--orange)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Order ID</div>
+              <div style="font-family:'Sora',sans-serif;font-size:14px;font-weight:800;color:var(--dark)">#${o.id}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Your Payout</div>
+              <div style="font-size:16px;font-weight:800;color:var(--green)">₦${Math.round(o.amount*0.7).toLocaleString()}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">PICKUP</div>
+              <div style="font-size:12px;font-weight:600;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.fromCity}</div>
+            </div>
+            <div style="color:var(--orange);font-size:18px;flex-shrink:0">→</div>
+            <div style="flex:1;min-width:0;text-align:right">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">DELIVER</div>
+              <div style="font-size:12px;font-weight:600;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.toCity}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-md btn-primary" style="flex:1;font-weight:700" onclick="riderAccept('${o.id}')">✅ Accept</button>
+            <button class="btn btn-md" style="flex:0 0 auto;background:var(--bg);color:var(--muted);border:1px solid var(--border)" onclick="riderDecline('${o.id}')">Skip</button>
+          </div>
+        </div>`).join('');
     }
   }
 }
@@ -3023,6 +3091,13 @@ function applyAccountAction() {
     u.banUntil = null;
   }
 
+  // Sync ALL changes to the DB.riders mirror if this user is a rider
+  if (riderMirror && riderMirror !== u) {
+    riderMirror.status   = u.status;
+    riderMirror.banUntil = u.banUntil;
+    riderMirror.warnings = u.warnings;
+    riderMirror.online   = u.online;
+  }
   saveDB();
   closeModal('m-acct-action');
   closeModal('m-person-detail');
@@ -3215,19 +3290,39 @@ function initSig() {
 }
 function clearSig() { if(sigCtx){const c=document.getElementById('sig-pad');if(c)sigCtx.clearRect(0,0,c.width,c.height);} }
 function confirmPOD() {
-  const note = val('pod-note');
-  if (currentPODOrderId) {
-    const o = DB.orders.find(x=>x.id===currentPODOrderId);
-    if (o) { o.status='Delivered'; o.progress=100; o.eta='Done'; }
-    const rider = currentUser?.role==='rider' ? currentUser : null;
-    if (rider) { rider.deliveriesToday=(rider.deliveriesToday||0)+1; }
+  if (!currentPODOrderId) return;
+  // Prevent double-submit
+  const btn = document.querySelector('#m-pod .btn-green');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+
+  const o = DB.orders.find(x=>x.id===currentPODOrderId);
+  if (o && o.status !== 'Delivered') {
+    o.status   = 'Delivered';
+    o.progress = 100;
+    o.eta      = 'Done';
+    o.deliveredAt = new Date().toISOString();
+    // Credit the rider
+    const rider = DB.riders.find(r=>r.id===o.riderId) || (currentUser?.role==='rider'?currentUser:null);
+    if (rider) {
+      rider.deliveriesToday = (rider.deliveriesToday||0)+1;
+      rider.walletBalance   = (rider.walletBalance||0) + Math.round(o.amount*0.7);
+      // Keep currentUser in sync
+      if (currentUser?.id === rider.id) {
+        currentUser.deliveriesToday = rider.deliveriesToday;
+        currentUser.walletBalance   = rider.walletBalance;
+      }
+    }
+    addNotification(`✅ Order #${currentPODOrderId} marked as delivered.`);
   }
-  saveDB();
+  const savedId = currentPODOrderId;
+  currentPODOrderId = null;
+  // Flush to Firestore immediately (skip debounce)
+  _flushToDB();
   closeModal('m-pod');
-  toast('✅ Delivery confirmed! Proof submitted.', 'success');
-  addNotification(`✅ Order #${currentPODOrderId} marked as delivered.`);
+  toast('✅ Delivery confirmed! Payment credited.', 'success');
   renderRiderDash();
   renderRiderOrders();
+  if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Delivery'; }
 }
 
 // ═══════════════════════════════════════════════════════
