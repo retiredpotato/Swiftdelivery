@@ -687,7 +687,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
       <div style="text-align:right;margin:-8px 0 14px"><span style="font-size:11px;color:var(--blue);cursor:pointer">Forgot password?</span></div>
       <button class="btn btn-full btn-primary" id="c-si-btn" onclick="doLogin('customer')">Sign In →</button>
       <div class="divider-or"><span>demo credentials</span></div>
-      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)">amaka@demo.ng</strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
+      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="0e6f636f656f4e6a6b6361206069">[email&#160;protected]</a></strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
       <div class="auth-footer">No account? <span class="auth-link" onclick="switchTab('customer','su')">Create one</span></div>
     </div>
     <!-- SIGN UP -->
@@ -720,7 +720,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
       <div style="text-align:right;margin:-8px 0 14px"><span style="font-size:11px;color:var(--blue);cursor:pointer">Forgot password?</span></div>
       <button class="btn btn-full btn-orange" id="r-si-btn" onclick="doLogin('rider')">Sign In →</button>
       <div class="divider-or"><span>demo credentials</span></div>
-      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)">chukwu@demo.ng</strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
+      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="45262d302e3230052120282a6b2b22">[email&#160;protected]</a></strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
       <div class="auth-footer">Not a rider yet? <span class="auth-link" onclick="switchTab('rider','su')">Apply now</span></div>
     </div>
     <div id="r-su" class="tab-pane">
@@ -754,7 +754,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
       <div style="text-align:right;margin:-8px 0 14px"><span style="font-size:11px;color:var(--blue);cursor:pointer">Forgot password?</span></div>
       <button class="btn btn-full btn-primary" style="background:var(--green)" id="v-si-btn" onclick="doLogin('vendor')">Sign In →</button>
       <div class="divider-or"><span>demo credentials</span></div>
-      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)">nkechi@demo.ng</strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
+      <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="f09e9b95939899b094959d9fde9e97">[email&#160;protected]</a></strong> &nbsp; Password: <strong style="color:var(--dark)">demo123</strong></div>
       <div class="auth-footer">No account? <span class="auth-link" onclick="switchTab('vendor','su')">Register</span></div>
     </div>
     <div id="v-su" class="tab-pane">
@@ -786,7 +786,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
     <div class="field mt12"><span class="label">Password</span><input class="input" id="a-si-pw" type="password" placeholder="Staff password" onkeydown="if(event.key==='Enter')doLogin('admin')"></div>
     <button class="btn btn-full btn-primary mt18" id="a-si-btn" onclick="doLogin('admin')">Access Dashboard →</button>
     <div class="divider-or"><span>demo credentials</span></div>
-    <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)">admin@swift.ng</strong> &nbsp; Password: <strong style="color:var(--dark)">admin123</strong></div>
+    <div style="background:var(--off);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted)">Email: <strong style="color:var(--dark)"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="b6d7d2dbdfd8f6c5c1dfd0c298d8d1">[email&#160;protected]</a></strong> &nbsp; Password: <strong style="color:var(--dark)">admin123</strong></div>
     <p style="text-align:center;font-size:11px;color:var(--muted);margin-top:14px">Unauthorised access attempts are logged.</p>
   </div>
 </div></div></div>
@@ -1436,10 +1436,25 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
 <!-- Hidden print zone -->
 <div id="print-zone" style="display:none"></div>
 
+<!-- BAN WALL -->
+<div id="ban-wall" style="display:none;position:fixed;inset:0;z-index:9000;background:#0B1D3A;flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center">
+  <div style="font-size:56px;margin-bottom:18px">🚫</div>
+  <div style="font-family:'Sora',sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:8px">Account Restricted</div>
+  <div style="font-size:13px;color:rgba(255,255,255,.45);max-width:400px;line-height:1.7;margin-bottom:14px" id="ban-wall-type"></div>
+  <div style="background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.3);border-radius:16px;padding:18px 24px;max-width:440px;margin-bottom:22px">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:rgba(255,255,255,.3);margin-bottom:8px">Reason for Restriction</div>
+    <div style="font-size:15px;font-weight:600;color:#ff6b6b;line-height:1.6" id="ban-wall-reason">Policy violation.</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.3);margin-top:8px" id="ban-wall-until"></div>
+  </div>
+  <div style="font-size:13px;color:rgba(255,255,255,.4);margin-bottom:20px">To appeal this decision, please contact our support team.</div>
+  <a href="mailto:support@swiftdelivery.ng" style="display:inline-flex;align-items:center;gap:7px;background:var(--orange);color:#fff;padding:12px 24px;border-radius:50px;font-weight:700;font-size:14px;text-decoration:none;margin-bottom:12px">📧 Contact Support</a>
+  <div><button onclick="doLogout()" style="background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.15);padding:10px 20px;border-radius:50px;font-size:13px;cursor:pointer;margin-top:8px">← Sign Out</button></div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 'use strict';
 // ═══════════════════════════════════════════════════════
 //  STATE ENGINE
@@ -1473,6 +1488,45 @@ DB.riders.push(
   { id:'u6', role:'rider', email:'fatima@demo.ng', password:'demo123', firstName:'Fatima', lastName:'Abubakar', phone:'+234 706 789 0123', city:'Abuja', vehicle:'Car', plate:'ABJ 220 FA', walletBalance:38000, online:true, rating:4.9, deliveriesTotal:145, deliveriesToday:4, status:'active', warnings:[], joinedAt:'2024-03-01' },
   { id:'u7', role:'rider', email:'emeka@demo.ng', password:'demo123', firstName:'Emeka', lastName:'Ogundele', phone:'+234 816 543 2100', city:'Lagos', vehicle:'Motorcycle', plate:'LAG 776 EO', walletBalance:22000, online:false, rating:4.6, deliveriesTotal:89, deliveriesToday:0, status:'warned', warnings:[{reason:'Late delivery complaint x2',date:'2024-12-10',by:'Admin'}], joinedAt:'2024-05-18' }
 );
+
+// ═══════════════════════════════════════════════════════
+//  DB PERSISTENCE (localStorage)
+// ═══════════════════════════════════════════════════════
+const DB_KEY = 'swd_db_v2';
+const TXN_KEY = 'swd_txns_v2';
+
+function saveDB() {
+  try {
+    localStorage.setItem(DB_KEY, JSON.stringify({
+      users: DB.users, orders: DB.orders,
+      riders: DB.riders, notifications: DB.notifications,
+    }));
+    localStorage.setItem(TXN_KEY, JSON.stringify(TRANSACTIONS));
+  } catch(e) { console.warn('saveDB failed:', e); }
+}
+
+function loadDBFromStorage() {
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    const txnRaw = localStorage.getItem(TXN_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved.users?.length)  DB.users  = saved.users;
+      if (saved.orders?.length !== undefined) DB.orders = saved.orders;
+      if (saved.riders?.length)  DB.riders = saved.riders;
+      if (saved.notifications) DB.notifications = saved.notifications;
+    }
+    if (txnRaw) {
+      const savedTxns = JSON.parse(txnRaw);
+      Object.assign(TRANSACTIONS, savedTxns);
+    }
+  } catch(e) { console.warn('loadDB failed:', e); }
+}
+
+function clearDB() {
+  try { localStorage.removeItem(DB_KEY); localStorage.removeItem(TXN_KEY); sessionStorage.clear(); } catch(e){}
+  location.reload();
+}
 
 let currentUser = null;
 let authMode = 'signin';
@@ -1572,6 +1626,11 @@ function doLogin(role) {
     }
     setLoading(btnId, false, 'Sign In →');
     currentUser = user;
+    if (checkBan(user)) {
+      try { sessionStorage.setItem('swd_session', JSON.stringify({ userId: user.id, role })); } catch(e) {}
+      setLoading(btnId, false, 'Sign In →');
+      return;
+    }
     loginSuccess(role);
   }, 700);
 }
@@ -1612,16 +1671,38 @@ function doSignup(role) {
     DB.users.push(newUser);
     if (role==='rider') DB.riders.push(newUser);
     currentUser = newUser;
+    saveDB();
     setLoading(fields.btn, false, 'Create Account →');
     toast('Account created! Welcome to SwiftDelivery 🎉', 'success');
     loginSuccess(role);
   }, 800);
 }
 
+function checkBan(user) {
+  const banned = ['perm_banned','temp_banned','suspended'];
+  const wall = document.getElementById('ban-wall');
+  if (!user || !banned.includes(user.status)) { if(wall) wall.style.display='none'; return false; }
+  const msgs = {
+    perm_banned:'Your account has been <strong style="color:#ff6b6b">permanently banned</strong> from SwiftDelivery.',
+    temp_banned:'Your account has been <strong style="color:#f59e0b">temporarily suspended</strong> from SwiftDelivery.',
+    suspended:'Your account has been <strong style="color:#f59e0b">suspended</strong> pending review.',
+  };
+  const te=document.getElementById('ban-wall-type'); if(te) te.innerHTML=msgs[user.status]||'Account restricted.';
+  const last=user.warnings&&user.warnings.length?user.warnings[user.warnings.length-1]:null;
+  const re2=document.getElementById('ban-wall-reason'); if(re2) re2.textContent=last?last.reason:'Account action by administrator.';
+  const ue=document.getElementById('ban-wall-until'); if(ue) ue.textContent=user.banUntil?`Restriction until: ${user.banUntil}`:'';
+  if(wall) wall.style.display='flex';
+  stopPolling();
+  return true;
+}
+
 function loginSuccess(role) {
+  if (checkBan(currentUser)) {
+    try { sessionStorage.setItem('swd_session', JSON.stringify({ userId:currentUser.id, role })); } catch(e){}
+    return;
+  }
   toast('Signed in successfully! Welcome back.', 'success');
-  // Persist session so refresh doesn't kick user out
-  try { sessionStorage.setItem('swd_session', JSON.stringify({ userId: currentUser.id, role })); } catch(e) {}
+  try { sessionStorage.setItem('swd_session', JSON.stringify({ userId:currentUser.id, role })); } catch(e){}
   setTimeout(()=>{
     go(role);
     if (role==='customer') initCustomer();
@@ -1632,6 +1713,7 @@ function loginSuccess(role) {
 }
 
 function doLogout() {
+  stopPolling();
   currentUser = null;
   try { sessionStorage.removeItem('swd_session'); } catch(e) {}
   toast('Signed out. See you soon!');
@@ -1647,6 +1729,7 @@ function restoreSession() {
     const user = DB.users.find(u=>u.id===userId) || DB.riders.find(r=>r.id===userId);
     if (!user) return;
     currentUser = user;
+    if (checkBan(currentUser)) return;
     go(role);
     if (role==='customer') initCustomer();
     else if (role==='rider') initRider();
@@ -1856,6 +1939,7 @@ function placeVendorOrder() {
     amount:raw-disc, insurance:500, createdAt:new Date().toISOString(), eta:'~1 hr', progress:5, isVendor:true,
   });
   currentUser.walletBalance -= total;
+  saveDB();
   addTransaction(currentUser.id, { type:'debit', desc:`Shipment #${orderId}`, amount:total, date:new Date().toISOString() });
   toast(`✅ Shipment #${orderId} created!`, 'success');
   showPane('vn','orders',null);
@@ -1883,6 +1967,7 @@ function simulateOrderProgress(orderId) {
         const rider = DB.riders.find(r=>r.id===o.riderId);
         if (rider) { rider.deliveriesToday = (rider.deliveriesToday||0)+1; rider.walletBalance += Math.round(o.amount*0.7); }
         addNotification(`✅ Order #${orderId} delivered!`);
+        saveDB();
       }
       // Refresh visible pane
       if (currentUser?.role==='customer') { renderCustomerDash(); renderHistory(); }
@@ -1899,6 +1984,7 @@ const TRANSACTIONS = {};
 function addTransaction(userId, txn) {
   if (!TRANSACTIONS[userId]) TRANSACTIONS[userId] = [];
   TRANSACTIONS[userId].unshift(txn);
+  saveDB();
 }
 function getTransactions(userId) {
   return TRANSACTIONS[userId]||[];
@@ -1918,6 +2004,7 @@ function processFund() {
     return;
   }
   currentUser.walletBalance += amt;
+  saveDB();
   addTransaction(currentUser.id, { type:'credit', desc:'Wallet Top-up', amount:amt, date:new Date().toISOString() });
   closeModal('m-fund');
   toast(`✅ ₦${amt.toLocaleString()} added to your wallet!`, 'success');
@@ -1946,6 +2033,8 @@ function openTrackModal(orderId) {
   const order = DB.orders.find(o=>o.id===orderId);
   if (!order) return;
   document.getElementById('m-track-body').innerHTML = buildTrackingHTML(order);
+  const _tm = document.getElementById('m-track');
+  if (_tm) _tm.dataset.orderId = orderId;
   openModal('m-track');
 }
 
@@ -2028,9 +2117,9 @@ function openOrderDetail(orderId) {
 //  RENDER: CUSTOMER
 // ═══════════════════════════════════════════════════════
 function initCustomer() {
+  startPolling();
   const u = currentUser;
   const hour = new Date().getHours();
-  const greet = hour<12?'Good morning':'hour<18'?'Good afternoon':'Good evening';
   setInner('c-greeting', `${hour<12?'Good morning':hour<18?'Good afternoon':'Good evening'}, ${u.firstName} 👋`);
   setInner('c-avatar', initials(u.firstName,u.lastName));
   loadProfile('c');
@@ -2159,6 +2248,7 @@ function saveProfile() {
 //  RENDER: RIDER
 // ═══════════════════════════════════════════════════════
 function initRider() {
+  startPolling();
   const u = currentUser;
   setInner('r-greeting',`Hey ${u.firstName} 🏍️`);
   setInner('r-avatar',initials(u.firstName,u.lastName));
@@ -2274,6 +2364,7 @@ function riderAccept(orderId) {
   o.riderId = currentUser.id;
   o.status = 'In Transit';
   o.progress = 30;
+  saveDB();
   toast(`Order #${orderId} accepted! Head to pickup now.`, 'success');
   renderRiderDash();
   simulateOrderProgress(orderId);
@@ -2282,6 +2373,39 @@ function riderAccept(orderId) {
 function riderDecline(orderId) {
   toast('Order declined.');
   renderRiderDash();
+}
+
+// ═══════════════════════════════════════════════════════
+//  LIVE POLLING
+// ═══════════════════════════════════════════════════════
+let _pollInterval = null;
+function startPolling() {
+  stopPolling();
+  _pollInterval = setInterval(() => {
+    if (!currentUser) return;
+    const role = currentUser.role;
+    if (role === 'customer') {
+      renderCustomerDash();
+      // Auto-update open tracking modal
+      const trackModal = document.getElementById('m-track');
+      if (trackModal && trackModal.classList.contains('open')) {
+        const orderId = trackModal.dataset.orderId;
+        if (orderId) {
+          const order = DB.orders.find(o=>o.id===orderId);
+          if (order) document.getElementById('m-track-body').innerHTML = buildTrackingHTML(order);
+        }
+      }
+    } else if (role === 'rider') {
+      renderRiderDash();
+    } else if (role === 'vendor') {
+      renderVendorDash();
+    } else if (role === 'admin') {
+      renderAdminOverview();
+    }
+  }, 4000);
+}
+function stopPolling() {
+  if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
 }
 
 function toggleOnline() {
@@ -2305,6 +2429,7 @@ function updateOnlineToggle() {
 //  RENDER: VENDOR
 // ═══════════════════════════════════════════════════════
 function initVendor() {
+  startPolling();
   const u = currentUser;
   setInner('vn-biz-name', (u.bizName||'Business Dashboard')+' 🏪');
   setInner('vn-plan-line', 'Premium business account · 5% volume discount');
@@ -2404,6 +2529,7 @@ function renderVendorAnalytics() {
 //  RENDER: ADMIN
 // ═══════════════════════════════════════════════════════
 function initAdmin() {
+  startPolling();
   renderAdminOverview();
   const now = new Date();
   setInner('ad-datetime', now.toLocaleDateString('en-NG',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
@@ -2529,10 +2655,11 @@ function openPersonDetail(userId, type) {
   const u = DB.users.find(x=>x.id===userId) || DB.riders.find(x=>x.id===userId);
   if (!u) return;
   const isRider = type==='rider';
+  const isVendor = type==='vendor';
   const orders = DB.orders.filter(o=>isRider ? o.riderId===userId : o.customerId===userId);
   const totalEarnings = isRider ? orders.filter(o=>o.status==='Delivered').reduce((a,o)=>a+Math.round(o.amount*.7),0) : null;
 
-  setInner('m-pd-title', isRider ? `🏍️ ${u.firstName} ${u.lastName}` : `👤 ${u.firstName} ${u.lastName}`);
+  setInner('m-pd-title', isRider ? `🏍️ ${u.firstName} ${u.lastName}` : isVendor ? `🏪 ${u.bizName||u.firstName}` : `👤 ${u.firstName} ${u.lastName}`);
   setInner('m-pd-body', `
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px;background:var(--off);border-radius:var(--r-lg)">
       <div style="width:52px;height:52px;border-radius:50%;background:var(--blue-lt);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0">${initials(u.firstName,u.lastName)}</div>
@@ -2612,6 +2739,8 @@ function applyAccountAction() {
 
   const u = DB.users.find(x=>x.id===currentActionUserId) || DB.riders.find(x=>x.id===currentActionUserId);
   if (!u) return;
+  // Also update the riders array if this is a rider (they exist in both arrays)
+  const riderMirror = DB.riders.find(x=>x.id===currentActionUserId);
 
   const prevStatus = u.status;
   const actionLabels = { warn:'Warning Issued', suspend:'Suspended', temp_ban:`Temp Banned (${duration} days)`, perm_ban:'Permanently Banned', restore:'Account Restored' };
@@ -2635,6 +2764,7 @@ function applyAccountAction() {
     u.banUntil = null;
   }
 
+  saveDB();
   closeModal('m-acct-action');
   closeModal('m-person-detail');
   toast(`✅ ${actionLabels[action]} for ${u.firstName} ${u.lastName}`, 'success');
@@ -2662,8 +2792,13 @@ function renderAdminVendors() {
       <td>${v.firstName} ${v.lastName}</td>
       <td style="font-size:12px;color:var(--muted)">${v.email}</td>
       <td style="font-weight:600">${shipCount}</td>
-      <td><span class="badge green">Active</span></td>
-      <td><button class="btn btn-sm btn-outline" onclick="toast('Viewing vendor...')">View</button></td>
+      <td><span class="badge ${accountStatusBadge(v.status)}">${accountStatusLabel(v.status)}</span>${v.warnings?.length?`<span style="font-size:10px;color:var(--yellow);margin-left:4px">⚠️${v.warnings.length}</span>`:''}</td>
+      <td>
+        <div class="act-pills">
+          <button class="act-pill ap-warn" onclick="openPersonDetail('${v.id}','vendor')">View</button>
+          <button class="act-pill ap-susp" onclick="openAccountAction('${v.id}')">Action</button>
+        </div>
+      </td>
     </tr>`;}).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">No vendors yet.</td></tr>');
 }
 
@@ -2697,6 +2832,7 @@ function adminAddRider() {
   const newRider = { id:'u'+Date.now(), role:'rider', email, password:'swift123', firstName:fn, lastName:ln, phone, city, vehicle, plate:'', walletBalance:0, online:false, rating:5.0, deliveriesTotal:0, deliveriesToday:0, status:'active', warnings:[], joinedAt:new Date().toLocaleDateString('en-NG') };
   DB.users.push(newRider);
   DB.riders.push(newRider);
+  saveDB();
   closeModal('m-add-rider');
   toast(`Rider ${fn} onboarded! Default password: swift123`, 'success');
   renderAdminRiders();
@@ -2827,6 +2963,7 @@ function confirmPOD() {
     const rider = currentUser?.role==='rider' ? currentUser : null;
     if (rider) { rider.deliveriesToday=(rider.deliveriesToday||0)+1; }
   }
+  saveDB();
   closeModal('m-pod');
   toast('✅ Delivery confirmed! Proof submitted.', 'success');
   addNotification(`✅ Order #${currentPODOrderId} marked as delivered.`);
@@ -2853,7 +2990,7 @@ function addNotification(msg) {
 // ═══════════════════════════════════════════════════════
 function openModal(id) { const el=document.getElementById(id); if(el){el.classList.add('open');} }
 function closeModal(id) { const el=document.getElementById(id); if(el){el.classList.remove('open');} }
-document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+// modal overlay close handled in window.onload
 
 // ═══════════════════════════════════════════════════════
 //  TOAST
@@ -2888,18 +3025,66 @@ function statusColor(s) { const m={'Delivered':'green','Out for Delivery':'orang
 // ═══════════════════════════════════════════════════════
 //  LANDING INIT
 // ═══════════════════════════════════════════════════════
-window.addEventListener('scroll',()=>{
-  const n=document.getElementById('lnav');
-  if(n) n.classList.toggle('scrolled', window.scrollY>40);
-},{passive:true});
+function initLanding() {
+  const fill = document.getElementById('hc-fill');
+  if (fill) {
+    let w = 0;
+    const iv = setInterval(()=>{ w = Math.min(w+0.4,72); fill.style.width=w+'%'; if(w>=72) clearInterval(iv); }, 16);
+  }
+}
 
-setTimeout(()=>{ const f=document.getElementById('hc-fill'); if(f) f.style.width='76%'; },700);
+function loadProfile(portal) {
+  if (!currentUser) return;
+  const u = currentUser;
+  const pfxMap = { c:'c', r:'r', vn:'vn', ad:'ad' };
+  const pfx = pfxMap[portal]||portal;
+  const avEl = document.getElementById(pfx+'-avatar');
+  if (avEl) avEl.textContent = initials(u.firstName, u.lastName);
+}
 
-const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.style.animation='fadeUp .5s ease both'}),{threshold:.1});
-document.querySelectorAll('.feat,.hiw-step,.city-chip').forEach(el=>io.observe(el));
+function renderCustomerProfile() {
+  if (!currentUser) return;
+  const u = currentUser;
+  setInner('c-prof-name', u.firstName+' '+u.lastName);
+  setInner('c-prof-email', u.email||'');
+  setInner('c-prof-phone', u.phone||'—');
+  setInner('c-prof-wallet', 'SWD-'+(u.walletId||u.id).toUpperCase());
+  setInner('c-prof-joined', u.joinedAt||new Date().getFullYear());
+  const orders = DB.orders.filter(o=>o.customerId===u.id);
+  setInner('c-prof-orders', orders.length);
+  setInner('c-prof-delivered', orders.filter(o=>o.status==='Delivered').length);
+}
 
-// Restore session on refresh
-restoreSession();
+function renderAdminOrders() {
+  const q = (document.getElementById('ad-ord-search')?.value||'').toLowerCase();
+  const sf = document.getElementById('ad-ord-filter')?.value||'';
+  let orders = [...DB.orders].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  if (sf) orders = orders.filter(o=>o.status===sf);
+  if (q)  orders = orders.filter(o=>o.id.toLowerCase().includes(q)||o.fromCity.toLowerCase().includes(q)||o.toCity.toLowerCase().includes(q)||(o.recipient||'').toLowerCase().includes(q));
+  setInner('ad-ord-count',`${orders.length} order${orders.length!==1?'s':''}`);
+  setInner('ad-orders-tbl', orders.length ? orders.map(o=>{
+    const rider = o.riderId ? DB.riders.find(r=>r.id===o.riderId) : null;
+    return `<tr>
+      <td class="tbl-mono">#${o.id}</td>
+      <td><div class="tbl-route">${o.fromCity}<span class="tbl-arrow"> → </span>${o.toCity}</div></td>
+      <td style="font-size:12px">${o.recipient||'—'}</td>
+      <td style="font-size:12px;color:var(--muted)">${rider?rider.firstName+' '+rider.lastName:'Unassigned'}</td>
+      <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
+      <td style="font-weight:600">₦${(o.amount+o.insurance).toLocaleString()}</td>
+      <td style="font-size:11px;color:var(--muted)">${fmtDate(o.createdAt)}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button></td>
+    </tr>`;}).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No orders found.</td></tr>`);
+}
+
+// ═══════════════════════════════════════════════════════
+//  STARTUP
+// ═══════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  loadDBFromStorage();
+  initLanding();
+  restoreSession();
+  document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+});
 </script>
 </body>
 </html>
