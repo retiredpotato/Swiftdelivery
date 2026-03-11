@@ -4,6 +4,38 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>SwiftDelivery by Mitch</title>
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp }                                  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot }  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
+// Steps: console.firebase.google.com → New Project → Firestore → Web App
+const firebaseConfig = {
+  apiKey:            "AIzaSyB6xQZroNph0ylVRVKXydF2g3PUKEzNRAs",
+  authDomain:        "swiftdeliveryproj.firebaseapp.com",
+  projectId:         "swiftdeliveryproj",
+  storageBucket:     "swiftdeliveryproj.firebasestorage.app",
+  messagingSenderId: "1022407766717",
+  appId:             "1:1022407766717:web:b655960cab54e58a34bdd4"
+};
+// ─────────────────────────────────────────────────────────────────────────
+
+const _configured = firebaseConfig.apiKey !== "REPLACE_apiKey";
+window.SWD_FB_CONFIGURED = _configured;
+
+if (_configured) {
+  const app = initializeApp(firebaseConfig);
+  const db  = getFirestore(app);
+  window.SWD_DB         = db;
+  window.SWD_DOC        = doc;
+  window.SWD_SETDOC     = setDoc;
+  window.SWD_GETDOC     = getDoc;
+  window.SWD_ONSNAPSHOT = onSnapshot;
+} else {
+  window.SWD_DB = null;
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -1453,6 +1485,32 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
 </div>
 
 <!-- Toast -->
+
+<!-- ═══ APP LOADING SCREEN ═══ -->
+<div id="swd-loader" style="display:flex;position:fixed;inset:0;z-index:9999;background:#0B1D3A;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+  <div style="width:42px;height:42px;border:3px solid rgba(255,255,255,.12);border-top-color:#F4722B;border-radius:50%;animation:spin .7s linear infinite"></div>
+  <div style="font-family:'Sora',sans-serif;font-size:16px;font-weight:800;color:#fff;letter-spacing:-.3px">Swift<span style="color:#F4722B">Delivery</span></div>
+  <div id="swd-loader-msg" style="font-size:12px;color:rgba(255,255,255,.4)">Connecting...</div>
+</div>
+
+<!-- ═══ NOT CONFIGURED SCREEN ═══ -->
+<div id="swd-not-configured" style="display:none;position:fixed;inset:0;z-index:9999;background:#0B1D3A;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center">
+  <div style="font-size:52px;margin-bottom:16px">⚙️</div>
+  <div style="font-family:'Sora',sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:10px">Firebase Not Configured</div>
+  <div style="max-width:460px;font-size:13px;color:rgba(255,255,255,.5);line-height:1.9;margin-bottom:24px">
+    Open <code style="background:rgba(255,255,255,.1);padding:2px 8px;border-radius:4px;color:#fff">index.html</code> and replace the placeholder values inside <code style="background:rgba(255,255,255,.1);padding:2px 8px;border-radius:4px;color:#fff">firebaseConfig</code> with your real Firebase project credentials.<br><br>
+    <strong style="color:#fff">Quick steps:</strong><br>
+    1 · <a href="https://console.firebase.google.com" target="_blank" style="color:#F4722B">console.firebase.google.com</a> → New project<br>
+    2 · Firestore Database → Create → Test mode<br>
+    3 · Project Settings → Web app → Copy config<br>
+    4 · Paste into the firebaseConfig in this file
+  </div>
+  <a href="https://console.firebase.google.com" target="_blank"
+     style="background:#F4722B;color:#fff;padding:12px 28px;border-radius:50px;font-weight:700;font-size:14px;text-decoration:none">
+    Open Firebase Console →
+  </a>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
@@ -1537,44 +1595,187 @@ DB.riders.push(
 );
 
 // ═══════════════════════════════════════════════════════
-//  DB PERSISTENCE (localStorage)
+//  FIREBASE FIRESTORE — REAL-TIME DATABASE
 // ═══════════════════════════════════════════════════════
-const DB_KEY = 'swd_db_v2';
-const TXN_KEY = 'swd_txns_v2';
+//
+//  Firestore layout (5 documents in collection "swd"):
+//    swd/users        → { list: [...] }
+//    swd/orders       → { list: [...] }
+//    swd/riders       → { list: [...] }
+//    swd/misc         → { notifications: [...], riderNotifs: {...} }
+//    swd/transactions → { data: {...} }
+//
+// ─────────────────────────────────────────────────────────
+let   _unsubscribers = [];   // Firestore listener cleanup fns
+let   _saveTimer     = null; // Debounce timer for writes
 
+// ── WRITE ────────────────────────────────────────────────
 function saveDB() {
-  try {
-    localStorage.setItem(DB_KEY, JSON.stringify({
-      users: DB.users, orders: DB.orders,
-      riders: DB.riders, notifications: DB.notifications,
-      riderNotifs: DB.riderNotifs,
-    }));
-    localStorage.setItem(TXN_KEY, JSON.stringify(TRANSACTIONS));
-  } catch(e) { console.warn('saveDB failed:', e); }
+  // Debounce: batch rapid changes, write once after 500ms quiet
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(_flushToDB, 500);
 }
 
-function loadDBFromStorage() {
+async function _flushToDB() {
+  const db = window.SWD_DB;
+  if (!db) return;
+  const set = window.SWD_SETDOC;
+  const d   = window.SWD_DOC;
   try {
-    const raw = localStorage.getItem(DB_KEY);
-    const txnRaw = localStorage.getItem(TXN_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      if (saved.users?.length)  DB.users  = saved.users;
-      if (Array.isArray(saved.orders)) DB.orders = saved.orders;
-      if (saved.riders?.length)  DB.riders = saved.riders;
-      if (saved.notifications) DB.notifications = saved.notifications;
-      if (saved.riderNotifs) DB.riderNotifs = saved.riderNotifs;
-    }
-    if (txnRaw) {
-      const savedTxns = JSON.parse(txnRaw);
-      Object.assign(TRANSACTIONS, savedTxns);
-    }
-  } catch(e) { console.warn('loadDB failed:', e); }
+    await Promise.all([
+      set(d(db, 'swd', 'users'),        { list: DB.users }),
+      set(d(db, 'swd', 'orders'),       { list: DB.orders }),
+      set(d(db, 'swd', 'riders'),       { list: DB.riders }),
+      set(d(db, 'swd', 'misc'),         { notifications: DB.notifications, riderNotifs: DB.riderNotifs }),
+      set(d(db, 'swd', 'transactions'), { data: TRANSACTIONS }),
+    ]);
+  } catch(e) { console.warn('[SWD] Firestore write error:', e); }
 }
 
+// ── READ (initial load) ──────────────────────────────────
+async function loadDBFromStorage() {
+  const db  = window.SWD_DB;
+  const get = window.SWD_GETDOC;
+  const d   = window.SWD_DOC;
+  if (!db) return;
+
+  const setMsg = m => { const el = document.getElementById('swd-loader-msg'); if (el) el.textContent = m; };
+  setMsg('Loading data...');
+
+  try {
+    const [uSnap, oSnap, rSnap, mSnap, tSnap] = await Promise.all([
+      get(d(db, 'swd', 'users')),
+      get(d(db, 'swd', 'orders')),
+      get(d(db, 'swd', 'riders')),
+      get(d(db, 'swd', 'misc')),
+      get(d(db, 'swd', 'transactions')),
+    ]);
+
+    if (!uSnap.exists()) {
+      // ── FIRST EVER LAUNCH — seed defaults into Firestore ──
+      setMsg('First launch — setting up...');
+      _seedTransactions();
+      await _flushToDB();
+    } else {
+      if (uSnap.data()?.list?.length)  DB.users  = uSnap.data().list;
+      if (Array.isArray(oSnap.data()?.list)) DB.orders = oSnap.data().list;
+      if (rSnap.data()?.list?.length)  DB.riders = rSnap.data().list;
+      if (mSnap.exists()) {
+        const m = mSnap.data();
+        if (m.notifications) DB.notifications = m.notifications;
+        if (m.riderNotifs)   DB.riderNotifs   = m.riderNotifs;
+      }
+      if (tSnap.exists() && tSnap.data()?.data) {
+        Object.assign(TRANSACTIONS, tSnap.data().data);
+      }
+    }
+
+    setMsg('Starting live sync...');
+    _attachListeners();
+
+  } catch(e) {
+    console.error('[SWD] Firestore load error:', e);
+    const el = document.getElementById('swd-loader-msg');
+    if (el) el.innerHTML = '⚠️ Connection failed.<br><small>' + e.message + '</small>';
+  }
+}
+
+// ── REAL-TIME LISTENERS ──────────────────────────────────
+function _attachListeners() {
+  const db   = window.SWD_DB;
+  const snap = window.SWD_ONSNAPSHOT;
+  const d    = window.SWD_DOC;
+  if (!db) return;
+
+  _unsubscribers.forEach(u => u()); // detach any old listeners
+  _unsubscribers = [];
+
+  const listen = (docId, fn) => _unsubscribers.push(
+    snap(d(db, 'swd', docId), s => { if (s.exists()) fn(s.data()); }, e => console.warn('[SWD] Listener error:', docId, e))
+  );
+
+  listen('users', data => {
+    if (!data.list?.length) return;
+    DB.users = data.list;
+    // Refresh currentUser from server & catch remote bans
+    if (currentUser) {
+      const fresh = DB.users.find(u => u.id === currentUser.id);
+      if (fresh) {
+        currentUser = fresh;
+        if (['perm_banned','temp_banned','suspended'].includes(fresh.status)) {
+          checkBan(currentUser); return;
+        }
+      }
+    }
+    _refreshUI();
+  });
+
+  listen('orders', data => {
+    if (Array.isArray(data.list)) DB.orders = data.list;
+    _refreshUI();
+    // Refresh open tracking modal
+    const tm = document.getElementById('m-track');
+    if (tm?.classList.contains('open') && tm.dataset.orderId) {
+      const o = DB.orders.find(x => x.id === tm.dataset.orderId);
+      if (o) document.getElementById('m-track-body').innerHTML = buildTrackingHTML(o);
+    }
+  });
+
+  listen('riders', data => {
+    if (!data.list?.length) return;
+    DB.riders = data.list;
+    if (currentUser?.role === 'rider') {
+      const fr = DB.riders.find(r => r.id === currentUser.id);
+      if (fr) currentUser = fr;
+    }
+    _refreshUI();
+  });
+
+  listen('misc', data => {
+    if (data.notifications) DB.notifications = data.notifications;
+    if (data.riderNotifs)   DB.riderNotifs   = data.riderNotifs;
+    if (currentUser?.role === 'rider') updateRiderNotifBadge();
+  });
+}
+
+function _detachListeners() {
+  _unsubscribers.forEach(u => u());
+  _unsubscribers = [];
+}
+
+// ── UI REFRESH (triggered by Firestore listener changes) ─
+function _refreshUI() {
+  if (!currentUser) return;
+  const role = currentUser.role;
+  if      (role === 'customer') renderCustomerDash();
+  else if (role === 'rider')    renderRiderDash();
+  else if (role === 'vendor')   renderVendorDash();
+  else if (role === 'admin')    renderAdminOverview();
+}
+
+// ── SEED (first launch only) ─────────────────────────────
+function _seedTransactions() {
+  addTransaction('u1', { type:'credit', desc:'Wallet Top-up', amount:20000, date: new Date(Date.now()-172800000).toISOString() });
+  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290441', amount:3300, date: new Date(Date.now()-5400000).toISOString() });
+  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290312', amount:2400, date: new Date(Date.now()-86400000).toISOString() });
+  addTransaction('u3', { type:'credit', desc:'Business Top-up', amount:500000, date: new Date(Date.now()-604800000).toISOString() });
+  addTransaction('u3', { type:'debit',  desc:'Bulk shipment × 8', amount:22400, date: new Date(Date.now()-86400000).toISOString() });
+}
+
+// ── RESET (admin only) ───────────────────────────────────
 function clearDB() {
-  try { localStorage.removeItem(DB_KEY); localStorage.removeItem(TXN_KEY); sessionStorage.clear(); } catch(e){}
-  location.reload();
+  if (!confirm('⚠️ Reset ALL SwiftDelivery data? This cannot be undone.')) return;
+  const db  = window.SWD_DB;
+  const set = window.SWD_SETDOC;
+  const d   = window.SWD_DOC;
+  if (!db) return;
+  Promise.all([
+    set(d(db,'swd','users'),        { list: [] }),
+    set(d(db,'swd','orders'),       { list: [] }),
+    set(d(db,'swd','riders'),       { list: [] }),
+    set(d(db,'swd','misc'),         { notifications: [], riderNotifs: {} }),
+    set(d(db,'swd','transactions'), { data: {} }),
+  ]).then(() => { sessionStorage.clear(); location.reload(); });
 }
 
 let currentUser = null;
@@ -1765,6 +1966,7 @@ function loginSuccess(role) {
 
 function doLogout() {
   stopPolling();
+  _detachListeners();
   currentUser = null;
   try { sessionStorage.removeItem('swd_session'); } catch(e) {}
   toast('Signed out. See you soon!');
@@ -2041,15 +2243,7 @@ function addTransaction(userId, txn) {
 function getTransactions(userId) {
   return TRANSACTIONS[userId]||[];
 }
-// Seed transactions ONLY on first-ever load (no localStorage yet)
-const _hasSavedData = (()=>{ try { return !!localStorage.getItem('swd_db_v2'); } catch(e){ return false; } })();
-if (!_hasSavedData) {
-  addTransaction('u1', { type:'credit', desc:'Wallet Top-up', amount:20000, date: new Date(Date.now()-172800000).toISOString() });
-  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290441', amount:3300, date: new Date(Date.now()-5400000).toISOString() });
-  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290312', amount:2400, date: new Date(Date.now()-86400000).toISOString() });
-  addTransaction('u3', { type:'credit', desc:'Business Top-up', amount:500000, date: new Date(Date.now()-604800000).toISOString() });
-  addTransaction('u3', { type:'debit',  desc:'Bulk shipment × 8', amount:22400, date: new Date(Date.now()-86400000).toISOString() });
-}
+// Transactions are seeded on first Firestore launch via _seedTransactions()
 
 function processFund() {
   const amt = parseInt(document.getElementById('fund-amt').value)||0;
@@ -3145,10 +3339,38 @@ function renderAdminOrders() {
 //  STARTUP
 // ═══════════════════════════════════════════════════════
 window.addEventListener('load', () => {
-  loadDBFromStorage();
-  initLanding();
-  restoreSession();
   document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }));
+  initLanding();
+
+  // Firebase loads via type="module" (async). Poll until it's ready.
+  let _waited = 0;
+  const _poll = setInterval(() => {
+    _waited++;
+    if (_waited > 80) { // 8s timeout
+      clearInterval(_poll);
+      if (!window.SWD_FB_CONFIGURED) {
+        document.getElementById('swd-loader').style.display    = 'none';
+        document.getElementById('swd-not-configured').style.display = 'flex';
+      } else {
+        const el = document.getElementById('swd-loader-msg');
+        if (el) el.textContent = 'Connection timed out. Check Firebase config & internet.';
+      }
+      return;
+    }
+    // window.SWD_DB is set (or null) once the module runs
+    if (typeof window.SWD_FB_CONFIGURED !== 'undefined') {
+      clearInterval(_poll);
+      if (!window.SWD_FB_CONFIGURED) {
+        document.getElementById('swd-loader').style.display         = 'none';
+        document.getElementById('swd-not-configured').style.display = 'flex';
+        return;
+      }
+      loadDBFromStorage().then(() => {
+        document.getElementById('swd-loader').style.display = 'none';
+        restoreSession();
+      });
+    }
+  }, 100);
 });
 </script>
 </body>
