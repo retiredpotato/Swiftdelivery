@@ -952,6 +952,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
     <div class="logo" onclick="go('landing')"><div class="logo-mark navy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 12l5-8 4 5 3-4 6 7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="logo-text">Swift<span>Delivery</span></span></div>
     <div class="topbar-r">
       <div class="online-toggle on" id="r-online-toggle" onclick="toggleOnline()"><div class="online-dot on" id="r-online-dot"></div><span id="r-online-txt">Online</span></div>
+      <div class="notif" onclick="openRiderNotifs()" style="cursor:pointer">🔔<div class="notif-dot" id="r-notif-dot" style="display:none"></div></div>
       <div class="avatar" id="r-avatar" style="background:var(--orange-lt);color:var(--orange-dk)">CO</div>
     </div>
   </div>
@@ -1447,14 +1448,14 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
     <div style="font-size:11px;color:rgba(255,255,255,.3);margin-top:8px" id="ban-wall-until"></div>
   </div>
   <div style="font-size:13px;color:rgba(255,255,255,.4);margin-bottom:20px">To appeal this decision, please contact our support team.</div>
-  <a href="mailto:support@swiftdelivery.ng" style="display:inline-flex;align-items:center;gap:7px;background:var(--orange);color:#fff;padding:12px 24px;border-radius:50px;font-weight:700;font-size:14px;text-decoration:none;margin-bottom:12px">📧 Contact Support</a>
+  <a href="/cdn-cgi/l/email-protection#04777174746b76704477736d62706061686d7261767d2a6a63" style="display:inline-flex;align-items:center;gap:7px;background:var(--orange);color:#fff;padding:12px 24px;border-radius:50px;font-weight:700;font-size:14px;text-decoration:none;margin-bottom:12px">📧 Contact Support</a>
   <div><button onclick="doLogout()" style="background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.15);padding:10px 20px;border-radius:50px;font-size:13px;cursor:pointer;margin-top:8px">← Sign Out</button></div>
 </div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 'use strict';
 // ═══════════════════════════════════════════════════════
 //  STATE ENGINE
@@ -1477,8 +1478,54 @@ const DB = {
   ],
   riders: [], // dynamic
   notifications: [],
+  riderNotifs: {},
   podOrderId: null,
 };
+
+// ═══════════════════════════════════════════════════════
+//  RIDER NOTIFICATION HELPERS
+// ═══════════════════════════════════════════════════════
+function addRiderNotif(riderId, msg, type='order') {
+  if (!DB.riderNotifs[riderId]) DB.riderNotifs[riderId] = [];
+  DB.riderNotifs[riderId].unshift({ msg, type, time: new Date().toISOString(), read: false });
+  saveDB();
+}
+function getRiderNotifs(riderId) { return DB.riderNotifs[riderId] || []; }
+function getRiderUnreadCount(riderId) { return (DB.riderNotifs[riderId]||[]).filter(n=>!n.read).length; }
+function markRiderNotifsRead(riderId) {
+  if (DB.riderNotifs[riderId]) { DB.riderNotifs[riderId].forEach(n=>n.read=true); saveDB(); }
+}
+function notifyOnlineRiders(msg) {
+  DB.riders.filter(r=>r.online&&(!r.status||r.status==='active')).forEach(r=>addRiderNotif(r.id, msg));
+}
+
+function openRiderNotifs() {
+  if (!currentUser||currentUser.role!=='rider') return;
+  markRiderNotifsRead(currentUser.id);
+  const dot = document.getElementById('r-notif-dot');
+  if (dot) dot.style.display='none';
+  const notifs = getRiderNotifs(currentUser.id);
+  const body = document.getElementById('m-rider-notifs-body');
+  if (body) {
+    body.innerHTML = notifs.length ? notifs.map(n=>`
+      <div style="display:flex;gap:10px;padding:13px 0;border-bottom:1px solid var(--border);align-items:flex-start">
+        <div style="width:36px;height:36px;border-radius:var(--r-md);background:var(--orange-lt);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📦</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:var(--dark);line-height:1.45">${n.msg}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">${fmtTime(n.time)}${!n.read?' · <span style="color:var(--orange);font-weight:700">New</span>':''}</div>
+        </div>
+      </div>`).join('')
+      : '<div class="empty"><div class="empty-ico">🔔</div><p>No notifications yet.<br>Stay online to receive order alerts.</p></div>';
+  }
+  openModal('m-rider-notifs');
+}
+
+function updateRiderNotifBadge() {
+  if (!currentUser||currentUser.role!=='rider') return;
+  const count = getRiderUnreadCount(currentUser.id);
+  const dot = document.getElementById('r-notif-dot');
+  if (dot) dot.style.display = count>0?'block':'none';
+}
 
 // Seed rider list from users
 DB.riders = DB.users.filter(u=>u.role==='rider').map(u=>({...u}));
@@ -1500,6 +1547,7 @@ function saveDB() {
     localStorage.setItem(DB_KEY, JSON.stringify({
       users: DB.users, orders: DB.orders,
       riders: DB.riders, notifications: DB.notifications,
+      riderNotifs: DB.riderNotifs,
     }));
     localStorage.setItem(TXN_KEY, JSON.stringify(TRANSACTIONS));
   } catch(e) { console.warn('saveDB failed:', e); }
@@ -1512,9 +1560,10 @@ function loadDBFromStorage() {
     if (raw) {
       const saved = JSON.parse(raw);
       if (saved.users?.length)  DB.users  = saved.users;
-      if (saved.orders?.length !== undefined) DB.orders = saved.orders;
+      if (Array.isArray(saved.orders)) DB.orders = saved.orders;
       if (saved.riders?.length)  DB.riders = saved.riders;
       if (saved.notifications) DB.notifications = saved.notifications;
+      if (saved.riderNotifs) DB.riderNotifs = saved.riderNotifs;
     }
     if (txnRaw) {
       const savedTxns = JSON.parse(txnRaw);
@@ -1626,9 +1675,11 @@ function doLogin(role) {
     }
     setLoading(btnId, false, 'Sign In →');
     currentUser = user;
-    if (checkBan(user)) {
+    // Check ban BEFORE doing anything else
+    const bannedStatuses = ['perm_banned','temp_banned','suspended'];
+    if (bannedStatuses.includes(user.status)) {
       try { sessionStorage.setItem('swd_session', JSON.stringify({ userId: user.id, role })); } catch(e) {}
-      setLoading(btnId, false, 'Sign In →');
+      checkBan(user); // show ban wall
       return;
     }
     loginSuccess(role);
@@ -1891,6 +1942,7 @@ function placeOrder() {
   // Add transaction
   addTransaction(currentUser.id, { type:'debit', desc:`Delivery #${orderId}`, amount:total, date:new Date().toISOString() });
   addNotification(`📦 Order #${orderId} placed! Rider being assigned.`);
+  notifyOnlineRiders(`📦 New order #${orderId} · ${puCity} → ${dlCity} · Tap to accept`);
 
   // Clear form
   ['s-pu-addr','s-dl-addr','s-rec-name','s-rec-phone','s-snd-name','s-desc','s-notes','s-weight'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
@@ -1941,6 +1993,7 @@ function placeVendorOrder() {
   currentUser.walletBalance -= total;
   saveDB();
   addTransaction(currentUser.id, { type:'debit', desc:`Shipment #${orderId}`, amount:total, date:new Date().toISOString() });
+  notifyOnlineRiders(`🏪 Vendor shipment #${orderId} · ${fc} → ${tc} · Available now`);
   toast(`✅ Shipment #${orderId} created!`, 'success');
   showPane('vn','orders',null);
   simulateOrderProgress(orderId);
@@ -1984,17 +2037,19 @@ const TRANSACTIONS = {};
 function addTransaction(userId, txn) {
   if (!TRANSACTIONS[userId]) TRANSACTIONS[userId] = [];
   TRANSACTIONS[userId].unshift(txn);
-  saveDB();
 }
 function getTransactions(userId) {
   return TRANSACTIONS[userId]||[];
 }
-// Seed some transactions
-addTransaction('u1', { type:'credit', desc:'Wallet Top-up', amount:20000, date: new Date(Date.now()-172800000).toISOString() });
-addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290441', amount:3300, date: new Date(Date.now()-5400000).toISOString() });
-addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290312', amount:2400, date: new Date(Date.now()-86400000).toISOString() });
-addTransaction('u3', { type:'credit', desc:'Business Top-up', amount:500000, date: new Date(Date.now()-604800000).toISOString() });
-addTransaction('u3', { type:'debit',  desc:'Bulk shipment × 8', amount:22400, date: new Date(Date.now()-86400000).toISOString() });
+// Seed transactions ONLY on first-ever load (no localStorage yet)
+const _hasSavedData = (()=>{ try { return !!localStorage.getItem('swd_db_v2'); } catch(e){ return false; } })();
+if (!_hasSavedData) {
+  addTransaction('u1', { type:'credit', desc:'Wallet Top-up', amount:20000, date: new Date(Date.now()-172800000).toISOString() });
+  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290441', amount:3300, date: new Date(Date.now()-5400000).toISOString() });
+  addTransaction('u1', { type:'debit',  desc:'Delivery #SWD-290312', amount:2400, date: new Date(Date.now()-86400000).toISOString() });
+  addTransaction('u3', { type:'credit', desc:'Business Top-up', amount:500000, date: new Date(Date.now()-604800000).toISOString() });
+  addTransaction('u3', { type:'debit',  desc:'Bulk shipment × 8', amount:22400, date: new Date(Date.now()-86400000).toISOString() });
+}
 
 function processFund() {
   const amt = parseInt(document.getElementById('fund-amt').value)||0;
@@ -2255,6 +2310,7 @@ function initRider() {
   riderOnline = u.online !== false;
   updateOnlineToggle();
   renderRiderDash();
+  setTimeout(updateRiderNotifBadge,100);
 }
 
 function renderRiderDash() {
@@ -2383,6 +2439,14 @@ function startPolling() {
   stopPolling();
   _pollInterval = setInterval(() => {
     if (!currentUser) return;
+    // Re-check ban status live (catches admin banning while user is logged in)
+    const _fresh = DB.users.find(u=>u.id===currentUser.id)||DB.riders.find(r=>r.id===currentUser.id);
+    if (_fresh && _fresh.status !== currentUser.status) {
+      currentUser.status = _fresh.status;
+      if (['perm_banned','temp_banned','suspended'].includes(_fresh.status)) {
+        checkBan(currentUser); return;
+      }
+    }
     const role = currentUser.role;
     if (role === 'customer') {
       renderCustomerDash();
@@ -2397,6 +2461,7 @@ function startPolling() {
       }
     } else if (role === 'rider') {
       renderRiderDash();
+      updateRiderNotifBadge();
     } else if (role === 'vendor') {
       renderVendorDash();
     } else if (role === 'admin') {
