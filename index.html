@@ -21,80 +21,150 @@
   
 // ═══════════════════════════════════════════════════════
 //  GOOGLE MAPS AUTOCOMPLETE (Bolt-style)
+//  Uses a body-level floating dropdown so overflow:hidden
+//  on parent cards can never clip it.
 // ═══════════════════════════════════════════════════════
-let _acService = null;
-let _acSessions = {};
+let _acService   = null;
+let _acDropdown  = null;   // single shared floating div
+let _acActiveInput = null; // currently focused input
+let _acDebounce  = null;
+
+function _ensureDropdown() {
+  if (!_acDropdown) {
+    _acDropdown = document.createElement('div');
+    _acDropdown.id = 'swd-ac-dropdown';
+    _acDropdown.style.cssText = [
+      'position:fixed','z-index:99999',
+      'background:#fff','border-radius:12px',
+      'border:1.5px solid #e2e8f0',
+      'box-shadow:0 8px 32px rgba(0,0,0,.14)',
+      'overflow:hidden','max-height:280px','overflow-y:auto',
+      'display:none','min-width:260px',
+    ].join(';');
+    document.body.appendChild(_acDropdown);
+    // Hide on outside click
+    document.addEventListener('mousedown', e => {
+      if (!_acDropdown.contains(e.target) && e.target !== _acActiveInput) {
+        _acDropdown.style.display = 'none';
+      }
+    });
+  }
+  return _acDropdown;
+}
+
+function _positionDropdown(input) {
+  const rect = input.getBoundingClientRect();
+  const dd = _ensureDropdown();
+  dd.style.top    = (rect.bottom + 4) + 'px';
+  dd.style.left   = rect.left + 'px';
+  dd.style.width  = rect.width + 'px';
+  dd.style.display = 'block';
+}
 
 function initAllAutocompletes() {
   if (!window.google?.maps?.places) return;
   _acService = new google.maps.places.AutocompleteService();
-  // Also set up map-based autocomplete for tracking & fleet maps
-  console.log('[SWD] Maps Places ready');
+  console.log('[SWD] Google Places ready');
 }
 
-function acSuggest(input, listId) {
+const _NIGERIAN_PLACES = [
+  'Lagos Island, Lagos','Victoria Island, Lagos','Lekki Phase 1, Lagos',
+  'Lekki Phase 2, Lagos','Ikeja, Lagos','Surulere, Lagos','Yaba, Lagos',
+  'Ojota, Lagos','Ajah, Lagos','Ikorodu, Lagos','Festac, Lagos',
+  'Oshodi, Lagos','Apapa, Lagos','Mushin, Lagos','Agege, Lagos',
+  'Gbagada, Lagos','Maryland, Lagos','Ojodu Berger, Lagos','Ogba, Lagos',
+  'Abuja, FCT','Garki, Abuja','Wuse 2, Abuja','Maitama, Abuja',
+  'Asokoro, Abuja','Jabi, Abuja','Gwarinpa, Abuja','Kubwa, Abuja',
+  'Lugbe, Abuja','Kado, Abuja','Life Camp, Abuja',
+  'Port Harcourt, Rivers','GRA Phase 1, Port Harcourt','GRA Phase 2, Port Harcourt',
+  'Rumuola, Port Harcourt','Old GRA, Port Harcourt','Diobu, Port Harcourt',
+  'Kano, Kano','Sabon Gari, Kano','Nassarawa, Kano','Fagge, Kano',
+  'Ibadan, Oyo','Bodija, Ibadan','Ring Road, Ibadan','Dugbe, Ibadan',
+  'Enugu, Enugu','GRA, Enugu','Independence Layout, Enugu','Ogui, Enugu',
+  'Benin City, Edo','GRA, Benin City','Sakponba, Benin City',
+  'Warri, Delta','Effurun, Warri','Alausa, Lagos','Ibeju-Lekki, Lagos',
+];
+
+// Builds a single dropdown row using DOM — zero escaping issues
+function _acItem(inputId, fullValue, main, sub) {
+  const idx = _acRegistry.length;
+  _acRegistry.push({ inputId: inputId, value: fullValue });
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:11px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;transition:background .12s';
+  row.addEventListener('mouseover', function(){ this.style.background = '#f8fafc'; });
+  row.addEventListener('mouseout',  function(){ this.style.background = ''; });
+  row.addEventListener('mousedown', function(e){ e.preventDefault(); _acPickIdx(idx); });
+  row.innerHTML = '<span style="font-size:15px;margin-top:1px;flex-shrink:0">📍</span>' +
+    '<div><div style="font-size:13px;font-weight:600;color:#1e293b">' + _escHtml(main) + '</div>' +
+    '<div style="font-size:11px;color:#94a3b8;margin-top:1px">' + _escHtml(sub) + '</div></div>';
+  return row;
+}
+
+function _escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+let _acRegistry = []; // stores { inputId, value } per dropdown item
+
+function _acPickIdx(idx) {
+  const item = _acRegistry[idx];
+  if (!item) return;
+  acPick(item.inputId, item.value);
+}
+
+function acSuggest(input, inputId) {
+  _acActiveInput = input;
   const q = input.value.trim();
-  const list = document.getElementById(listId);
-  if (!list) return;
-  if (!q || q.length < 2) { acHide(listId); return; }
+  const dd = _ensureDropdown();
 
-  if (!window.google?.maps?.places) {
-    // Fallback: Nigerian city/area suggestions without API
-    const nigerianPlaces = [
-      'Lagos Island, Lagos','Victoria Island, Lagos','Lekki Phase 1, Lagos',
-      'Ikeja, Lagos','Surulere, Lagos','Yaba, Lagos','Ojota, Lagos','Ajah, Lagos',
-      'Abuja, FCT','Garki, Abuja','Wuse, Abuja','Maitama, Abuja','Asokoro, Abuja',
-      'Port Harcourt, Rivers','Rumuola, Port Harcourt','Old GRA, Port Harcourt',
-      'Kano City, Kano','Sabon Gari, Kano','Nassarawa, Kano',
-      'Ibadan, Oyo','Bodija, Ibadan','Ring Road, Ibadan',
-      'Enugu, Enugu','GRA, Enugu','Independence Layout, Enugu',
-    ];
-    const matches = nigerianPlaces.filter(p=>p.toLowerCase().includes(q.toLowerCase())).slice(0,6);
-    if (!matches.length) { acHide(listId); return; }
-    list.innerHTML = matches.map(p=>`
-      <div class="ac-item" onmousedown="acSelect('${input.id}','${listId}','${p.replace(/'/g,"\'")}')">
-        <span class="ac-item-ico">📍</span>
-        <div><div class="ac-item-main">${p.split(',')[0]}</div><div class="ac-item-sub">${p.split(',').slice(1).join(',').trim()}</div></div>
-      </div>`).join('');
-    list.classList.add('open');
-    return;
-  }
+  clearTimeout(_acDebounce);
+  if (!q || q.length < 2) { dd.style.display = 'none'; return; }
 
-  // Real Google Places autocomplete
-  const sessionToken = _acSessions[listId] || (_acSessions[listId] = new google.maps.places.AutocompleteSessionToken());
-  _acService.getPlacePredictions({
-    input: q,
-    sessionToken,
-    componentRestrictions: { country: 'ng' },
-    types: ['geocode','establishment'],
-  }, (preds, status) => {
-    if (status !== google.maps.places.PlacesServiceStatus.OK || !preds) { acHide(listId); return; }
-    list.innerHTML = preds.slice(0,5).map(p=>`
-      <div class="ac-item" onmousedown="acSelect('${input.id}','${listId}','${p.description.replace(/'/g,"\'")}')">
-        <span class="ac-item-ico">📍</span>
-        <div>
-          <div class="ac-item-main">${p.structured_formatting.main_text}</div>
-          <div class="ac-item-sub">${p.structured_formatting.secondary_text||''}</div>
-        </div>
-      </div>`).join('');
-    list.classList.add('open');
-    // Clear session token after full selection
-    _acSessions[listId] = null;
-  });
+  _acRegistry = []; // reset for this suggestion batch
+  _acDebounce = setTimeout(() => {
+    if (!window.google?.maps?.places) {
+      const matches = _NIGERIAN_PLACES
+        .filter(p => p.toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 6);
+      if (!matches.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = '';
+      matches.forEach(p => {
+        const parts = p.split(',');
+        dd.appendChild(_acItem(input.id, p, parts[0].trim(), parts.slice(1).join(',').trim()));
+      });
+      _positionDropdown(input);
+      return;
+    }
+    _acService.getPlacePredictions({
+      input: q,
+      componentRestrictions: { country: 'ng' },
+      types: ['geocode', 'establishment'],
+    }, (preds, status) => {
+      if (status !== 'OK' || !preds || !preds.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = '';
+      preds.slice(0, 5).forEach(p => {
+        dd.appendChild(_acItem(input.id, p.description, p.structured_formatting.main_text, p.structured_formatting.secondary_text || ''));
+      });
+      _positionDropdown(input);
+    });
+  }, 200);
 }
 
-function acSelect(inputId, listId, value) {
+function acPick(inputId, value) {
   const inp = document.getElementById(inputId);
   if (inp) inp.value = value;
-  acHide(listId);
-  // Auto-fill city select if detectable
+  if (_acDropdown) _acDropdown.style.display = 'none';
+
+  // Auto-fill the city dropdown
   const cityMap = {
-    'Lagos':'Lagos','Abuja':'Abuja','Port Harcourt':'Port Harcourt',
-    'Kano':'Kano','Ibadan':'Ibadan','Enugu':'Enugu','FCT':'Abuja','Rivers':'Port Harcourt'
+    'Lagos':'Lagos','Abuja':'Abuja','FCT':'Abuja',
+    'Port Harcourt':'Port Harcourt','Rivers':'Port Harcourt',
+    'Kano':'Kano','Ibadan':'Ibadan','Oyo':'Ibadan',
+    'Enugu':'Enugu','Benin City':'Benin City','Warri':'Warri',
   };
   const citySelectMap = {
     's-pu-addr':'s-pu-city','s-dl-addr':'s-dl-city',
-    'vs-pu-addr':'vs-pu-city','vs-dl-addr':'vs-dl-city'
+    'vs-pu-addr':'vs-pu-city','vs-dl-addr':'vs-dl-city',
   };
   const selId = citySelectMap[inputId];
   if (selId) {
@@ -107,10 +177,13 @@ function acSelect(inputId, listId, value) {
   }
 }
 
+// Legacy alias kept for any inline onblur calls
 function acHide(listId) {
-  const list = document.getElementById(listId);
-  if (list) list.classList.remove('open');
+  // No-op — handled by body mousedown listener now
+  const el = document.getElementById(listId);
+  if (el) el.style.display = 'none';
 }
+function acSelect(inputId, listId, value) { acPick(inputId, value); }
 
 // ═══════════════════════════════════════════════════════
 //  RIDER GPS — broadcasts position to Firestore every 5s
@@ -1366,13 +1439,13 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px">
           <div>
             <div class="card mb14"><div class="card-hd"><span class="card-title">📍 Pickup Details</span></div><div class="card-body">
-              <div class="field"><span class="label">Pickup Address</span><input class="input" id="s-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,'s-pu-addr-list')" onfocus="acSuggest(this,'s-pu-addr-list')" onblur="setTimeout(()=>acHide('s-pu-addr-list'),200)"><div class="ac-list" id="s-pu-addr-list"></div></div>
+              <div class="field"><span class="label">Pickup Address</span><input class="input" id="s-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,this.id)" onfocus="acSuggest(this,this.id)" onblur="setTimeout(()=>acHide('s-pu-addr-list'),200)"></div>
               <div class="field mt12"><span class="label">Pickup City</span><select class="select" id="s-pu-city"><option value="">Select city</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Sender Name</span><input class="input" id="s-snd-name" placeholder="Your full name"></div>
               <div class="field mt12"><span class="label">Sender Phone</span><input class="input" id="s-snd-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
             </div></div>
             <div class="card"><div class="card-hd"><span class="card-title">🏁 Delivery Details</span></div><div class="card-body">
-              <div class="field"><span class="label">Delivery Address</span><input class="input" id="s-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,'s-dl-addr-list')" onfocus="acSuggest(this,'s-dl-addr-list')" onblur="setTimeout(()=>acHide('s-dl-addr-list'),200)"><div class="ac-list" id="s-dl-addr-list"></div></div>
+              <div class="field"><span class="label">Delivery Address</span><input class="input" id="s-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,this.id)" onfocus="acSuggest(this,this.id)" onblur="setTimeout(()=>acHide('s-dl-addr-list'),200)"></div>
               <div class="field mt12"><span class="label">Delivery City</span><select class="select" id="s-dl-city"><option value="">Select city</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Recipient Name</span><input class="input" id="s-rec-name" placeholder="Recipient full name"></div>
               <div class="field mt12"><span class="label">Recipient Phone</span><input class="input" id="s-rec-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
@@ -1614,11 +1687,11 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
           <div>
             <div class="card mb14"><div class="card-hd"><span class="card-title">📍 Pickup & Delivery</span></div><div class="card-body">
-              <div class="field"><span class="label">Pickup Address</span><input class="input" id="vs-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,'vs-pu-addr-list')" onfocus="acSuggest(this,'vs-pu-addr-list')" onblur="setTimeout(()=>acHide('vs-pu-addr-list'),200)"><div class="ac-list" id="vs-pu-addr-list"></div></div>
+              <div class="field"><span class="label">Pickup Address</span><input class="input" id="vs-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,this.id)" onfocus="acSuggest(this,this.id)" onblur="setTimeout(()=>acHide('vs-pu-addr-list'),200)"></div>
               <div class="field mt12"><span class="label">Pickup City</span><select class="select" id="vs-pu-city"><option value="">City</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Recipient Name</span><input class="input" id="vs-rec-name" placeholder="Full name"></div>
               <div class="field mt12"><span class="label">Recipient Phone</span><input class="input" id="vs-rec-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
-              <div class="field mt12"><span class="label">Delivery Address</span><input class="input" id="vs-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,'vs-dl-addr-list')" onfocus="acSuggest(this,'vs-dl-addr-list')" onblur="setTimeout(()=>acHide('vs-dl-addr-list'),200)"><div class="ac-list" id="vs-dl-addr-list"></div></div>
+              <div class="field mt12"><span class="label">Delivery Address</span><input class="input" id="vs-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,this.id)" onfocus="acSuggest(this,this.id)" onblur="setTimeout(()=>acHide('vs-dl-addr-list'),200)"></div>
               <div class="field mt12"><span class="label">Delivery City</span><select class="select" id="vs-dl-city"><option value="">City</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
             </div></div>
           </div>
