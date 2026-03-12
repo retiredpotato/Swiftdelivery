@@ -287,45 +287,66 @@ function openTrackingModal(orderId) {
 }
 
 function initTrackingMap(order) {
+  const wrap   = document.getElementById('track-map-wrap');
+  const canvas = document.getElementById('track-map-canvas');
+  if (!wrap || !canvas) return;
+
+  // Always reset previous map instance so re-opens work cleanly
+  _trackMap    = null;
+  _trackMarker = null;
+  canvas.innerHTML = '';
+
   if (!window.SWD_MAPS_READY || !window.google?.maps) {
-    document.getElementById('track-map-wrap').style.display = 'none';
+    wrap.style.display = 'none';
     return;
   }
-  const wrap = document.getElementById('track-map-wrap');
-  const canvas = document.getElementById('track-map-canvas');
+
   wrap.style.display = 'block';
 
   const riderLoc = order.riderId ? _riderLocations[order.riderId] : null;
-  const center = riderLoc ? { lat: riderLoc.lat, lng: riderLoc.lng } : { lat: 6.5244, lng: 3.3792 };
+  // Default to Lagos if no GPS yet
+  const center   = riderLoc ? { lat: riderLoc.lat, lng: riderLoc.lng } : { lat: 6.5244, lng: 3.3792 };
 
   _trackMap = new google.maps.Map(canvas, {
-    center,
-    zoom: 14,
+    center, zoom: 14,
     styles: _mapStyles(),
-    disableDefaultUI: false,
     zoomControl: true,
     streetViewControl: false,
     mapTypeControl: false,
     fullscreenControl: true,
   });
 
-  // Rider marker
-  if (riderLoc) {
-    _trackMarker = new google.maps.Marker({
-      position: { lat: riderLoc.lat, lng: riderLoc.lng },
-      map: _trackMap,
-      title: riderLoc.name || 'Rider',
-      icon: {
-        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
-            <circle cx="20" cy="20" r="18" fill="#F4722B" stroke="white" stroke-width="3"/>
-            <text x="20" y="26" text-anchor="middle" font-size="18">🏍️</text>
-          </svg>`),
-        scaledSize: new google.maps.Size(40, 40),
-        anchor: new google.maps.Point(20, 20),
-      }
-    });
-  }
+  // Rider marker (always show — either real GPS or Lagos default)
+  const markerPos = riderLoc ? { lat: riderLoc.lat, lng: riderLoc.lng } : center;
+  const riderInfo = order.riderId ? DB.riders.find(r => r.id === order.riderId) : null;
+  const markerLabel = riderInfo ? (riderInfo.firstName + ' ' + riderInfo.lastName) : 'Rider';
+
+  _trackMarker = new google.maps.Marker({
+    position: markerPos,
+    map: _trackMap,
+    title: markerLabel,
+    icon: {
+      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52">' +
+        '<ellipse cx="22" cy="48" rx="8" ry="4" fill="rgba(0,0,0,.2)"/>' +
+        '<path d="M22 0 C10 0 2 9 2 20 C2 36 22 52 22 52 C22 52 42 36 42 20 C42 9 34 0 22 0Z" fill="#F4722B" stroke="white" stroke-width="2"/>' +
+        '<circle cx="22" cy="20" r="11" fill="white" opacity=".9"/>' +
+        '<text x="22" y="25" text-anchor="middle" font-size="14">🏍️</text></svg>'
+      ),
+      scaledSize: new google.maps.Size(44, 52),
+      anchor: new google.maps.Point(22, 52),
+    }
+  });
+
+  // Info window with rider name + status
+  const infoWin = new google.maps.InfoWindow({
+    content: '<div style="font-family:sans-serif;padding:4px"><strong>' + markerLabel + '</strong>' +
+      (riderInfo ? '<br><span style="font-size:12px;color:#666">' + (riderInfo.vehicle||'') + ' · ' + (riderInfo.plate||'') + '</span>' : '') +
+      (riderLoc ? '' : '<br><span style="font-size:11px;color:#f97316">📍 Awaiting GPS...</span>') + '</div>'
+  });
+  _trackMarker.addListener('click', () => infoWin.open(_trackMap, _trackMarker));
+
+  // Start listening for location updates
   startLocationListener();
 }
 
@@ -338,6 +359,9 @@ function updateTrackingMap(orderId) {
   const pos = new google.maps.LatLng(loc.lat, loc.lng);
   _trackMarker.setPosition(pos);
   _trackMap.panTo(pos);
+  // Also refresh the tracking body text (ETA etc.)
+  const body = document.getElementById('m-track-body');
+  if (body) body.innerHTML = buildTrackingHTML(order);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -379,7 +403,8 @@ function updateFleetMap() {
     const pos = loc ? { lat: loc.lat, lng: loc.lng } : null;
     if (!pos) return;
 
-    const isOnline = rider.online && (!loc || Date.now()-loc.ts < 60000);
+    // Primary truth: GPS seen in last 90s → online; else fall back to rider.online flag
+    const isOnline = (loc && Date.now()-loc.ts < 90000) || rider.online;
     const color = isOnline ? '#22c55e' : '#94a3b8';
 
     if (_fleetMarkers[rider.id]) {
@@ -449,7 +474,7 @@ function renderFleetRiderList() {
 
   container.innerHTML = DB.riders.map(rider => {
     const loc       = _riderLocations[rider.id];
-    const isOnline  = rider.online && (!loc || Date.now()-loc.ts < 60000);
+    const isOnline  = (loc && Date.now()-loc.ts < 90000) || rider.online;
     const lastSeen  = loc ? fmtTime(new Date(loc.ts).toISOString()) : 'Never';
     const activeOrd = DB.orders.find(o=>o.riderId===rider.id && ['In Transit','Out for Delivery'].includes(o.status));
     const bgColor   = isOnline ? 'var(--orange-lt)' : 'var(--off)';
@@ -2360,7 +2385,13 @@ function _attachListeners() {
     DB.riders = data.list;
     if (currentUser?.role === 'rider') {
       const fr = DB.riders.find(r => r.id === currentUser.id);
-      if (fr) currentUser = fr;
+      if (fr) {
+        // Preserve online:true — Firestore may have stale offline state
+        // if this rider is the currently logged-in session
+        fr.online = true;
+        currentUser = fr;
+        currentUser.online = true;
+      }
     }
     _refreshUI();
   });
@@ -2957,17 +2988,22 @@ function buildTrackingHTML(order) {
 function getTrackSteps(order) {
   const created = fmtTime(order.createdAt);
   const s = order.status;
-  const isDone  = st => ['Out for Delivery','Delivered','In Transit','Placed'].indexOf(st) >= ['Out for Delivery','Delivered','In Transit','Placed'].indexOf(s) ? (s===st?'active':'done') : 'pending';
-  const done = x => ['Out for Delivery','Delivered','In Transit','Placed'].indexOf(s) > ['Out for Delivery','Delivered','In Transit','Placed'].indexOf(x) ? 'done' : (s===x?'active':'pending');
-  const placed  = 'done';
-  const transit = s==='Placed' ? 'pending' : s==='In Transit'?'active':'done';
-  const ofd     = s==='Out for Delivery'?'active':s==='Delivered'?'done':'pending';
-  const deliv   = s==='Delivered'?'done':'pending';
+  // Order of statuses in the pipeline
+  const pipeline = ['Placed','In Transit','Pickup Confirmed','Out for Delivery','Delivered'];
+  const si = pipeline.indexOf(s);
+  const stateOf = x => {
+    const xi = pipeline.indexOf(x);
+    if (xi < si) return 'done';
+    if (xi === si) return 'active';
+    return 'pending';
+  };
+  const riderName = order.riderId ? (DB.riders.find(r=>r.id===order.riderId)?.firstName || '') : '';
   return [
-    { title:'Order Placed', time:created, note:`${order.desc||'Package'} booked`, state:'done' },
-    { title:'Rider Assigned', time:transit!=='pending'?fmtTime(new Date(new Date(order.createdAt).getTime()+300000).toISOString()):'Pending', note:transit!=='pending'?(DB.riders.find(r=>r.id===order.riderId)?.firstName+' assigned'):null, state:transit==='pending'?'pending':'done' },
-    { title:'In Transit', time:transit!=='pending'?fmtTime(new Date(new Date(order.createdAt).getTime()+900000).toISOString()):'—', note:null, state:transit },
-    { title:'Out for Delivery', time:ofd!=='pending'?fmtTime(new Date(new Date(order.createdAt).getTime()+2400000).toISOString()):'—', note:ofd==='active'?`Rider is on the way · ${order.eta}`:null, state:ofd },
+    { title:'Order Placed',      time:created, note:(order.desc||'Package')+' booked', state:'done' },
+    { title:'Rider Assigned',    time:si>=1?fmtTime(new Date(new Date(order.createdAt).getTime()+300000).toISOString()):'Pending', note:si>=1?(riderName+' assigned'):null, state:si>=1?'done':'pending' },
+    { title:'In Transit',        time:si>=1?fmtTime(new Date(new Date(order.createdAt).getTime()+900000).toISOString()):'—', note:s==='In Transit'?'Rider heading to pickup':'', state:stateOf('In Transit') },
+    { title:'Pickup Confirmed',  time:si>=2?fmtTime(new Date(new Date(order.createdAt).getTime()+1500000).toISOString()):'—', note:s==='Pickup Confirmed'?'Package collected by rider':'', state:stateOf('Pickup Confirmed') },
+    { title:'Out for Delivery',  time:si>=3?fmtTime(new Date(new Date(order.createdAt).getTime()+2400000).toISOString()):'—', note:s==='Out for Delivery'?('Rider is on the way · '+(order.eta||'')):null, state:stateOf('Out for Delivery') },
     { title:'Delivered', time:deliv==='done'?fmtTime(new Date(new Date(order.createdAt).getTime()+3600000).toISOString()):'—', note:deliv==='done'?'Package delivered successfully':null, state:deliv },
   ];
 }
@@ -3179,8 +3215,17 @@ function renderRiderDash() {
             <div><div style="font-size:9px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Deliver To</div><div style="font-size:13px;font-weight:600;color:#fff">${activeJob.toCity}</div><div style="font-size:11px;color:rgba(255,255,255,.4)">${activeJob.to}</div></div>
           </div>
           <div style="display:flex;gap:9px;flex-wrap:wrap">
-            <button class="btn btn-md btn-orange" style="flex:1;min-width:120px" onclick="openPOD('${activeJob.id}')">✅ Mark Delivered</button>
-            <button class="btn btn-md" style="flex:1;min-width:90px;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)" onclick="toast('Calling customer...')">📞 Call</button>
+            ${activeJob.status==='In Transit'?`
+              <button class="btn btn-md" style="flex:1;min-width:140px;background:#22c55e;color:#fff;font-weight:700;border:none"
+                onclick="riderUpdateStatus('${activeJob.id}','Pickup Confirmed')">📦 Confirm Pickup</button>
+            `:activeJob.status==='Pickup Confirmed'?`
+              <button class="btn btn-md" style="flex:1;min-width:140px;background:#f59e0b;color:#fff;font-weight:700;border:none"
+                onclick="riderUpdateStatus('${activeJob.id}','Out for Delivery')">🚀 Out for Delivery</button>
+            `:`
+              <button class="btn btn-md btn-orange" style="flex:1;min-width:120px"
+                onclick="openPOD('${activeJob.id}')">✅ Mark Delivered</button>
+            `}
+            <button class="btn btn-md" style="flex:0 0 auto;padding:0 14px;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)" onclick="toast('Calling customer...')">📞</button>
           </div>
         </div>
       </div>`;
@@ -3288,6 +3333,27 @@ function riderAccept(orderId) {
 function riderDecline(orderId) {
   toast('Order declined.');
   renderRiderDash();
+}
+
+function riderUpdateStatus(orderId, newStatus) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o) return;
+  const steps = {
+    'Pickup Confirmed': { progress: 45, eta: '~25 mins', label: 'Pickup confirmed! Head to delivery.' },
+    'Out for Delivery': { progress: 75, eta: '~15 mins', label: 'Out for delivery!' },
+  };
+  const step = steps[newStatus];
+  if (!step) return;
+  o.status   = newStatus;
+  o.progress = step.progress;
+  o.eta      = step.eta;
+  // Push rider GPS after status update so map refreshes
+  if (_lastCoords) _pushRiderLocation(_lastCoords);
+  saveDB();
+  toast('✅ ' + step.label, 'success');
+  addNotification('📦 Order #' + orderId + ' — ' + newStatus);
+  renderRiderDash();
+  renderRiderOrders();
 }
 
 // ═══════════════════════════════════════════════════════
