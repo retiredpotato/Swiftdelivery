@@ -4,6 +4,431 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>SwiftDelivery by Mitch</title>
+<!-- Google Maps + Places API -->
+<!-- IMPORTANT: Replace YOUR_GOOGLE_MAPS_KEY with your API key -->
+<!-- Get one free at: console.cloud.google.com → Maps JavaScript API + Places API -->
+<script>
+  window.SWD_MAPS_KEY = "AIzaSyDfa1dXoY_MPoUWbVTd0-WJC9NByAI-6_U";
+  window.SWD_MAPS_READY = false;
+  function onGoogleMapsReady() {
+    window.SWD_MAPS_READY = true;
+    if (typeof initAllAutocompletes === 'function') initAllAutocompletes();
+  }
+</script>
+<script id="gmaps-script" defer></script>
+<script>
+  // Load Maps after page so it doesn't block render
+  
+// ═══════════════════════════════════════════════════════
+//  GOOGLE MAPS AUTOCOMPLETE (Bolt-style)
+// ═══════════════════════════════════════════════════════
+let _acService = null;
+let _acSessions = {};
+
+function initAllAutocompletes() {
+  if (!window.google?.maps?.places) return;
+  _acService = new google.maps.places.AutocompleteService();
+  // Also set up map-based autocomplete for tracking & fleet maps
+  console.log('[SWD] Maps Places ready');
+}
+
+function acSuggest(input, listId) {
+  const q = input.value.trim();
+  const list = document.getElementById(listId);
+  if (!list) return;
+  if (!q || q.length < 2) { acHide(listId); return; }
+
+  if (!window.google?.maps?.places) {
+    // Fallback: Nigerian city/area suggestions without API
+    const nigerianPlaces = [
+      'Lagos Island, Lagos','Victoria Island, Lagos','Lekki Phase 1, Lagos',
+      'Ikeja, Lagos','Surulere, Lagos','Yaba, Lagos','Ojota, Lagos','Ajah, Lagos',
+      'Abuja, FCT','Garki, Abuja','Wuse, Abuja','Maitama, Abuja','Asokoro, Abuja',
+      'Port Harcourt, Rivers','Rumuola, Port Harcourt','Old GRA, Port Harcourt',
+      'Kano City, Kano','Sabon Gari, Kano','Nassarawa, Kano',
+      'Ibadan, Oyo','Bodija, Ibadan','Ring Road, Ibadan',
+      'Enugu, Enugu','GRA, Enugu','Independence Layout, Enugu',
+    ];
+    const matches = nigerianPlaces.filter(p=>p.toLowerCase().includes(q.toLowerCase())).slice(0,6);
+    if (!matches.length) { acHide(listId); return; }
+    list.innerHTML = matches.map(p=>`
+      <div class="ac-item" onmousedown="acSelect('${input.id}','${listId}','${p.replace(/'/g,"\'")}')">
+        <span class="ac-item-ico">📍</span>
+        <div><div class="ac-item-main">${p.split(',')[0]}</div><div class="ac-item-sub">${p.split(',').slice(1).join(',').trim()}</div></div>
+      </div>`).join('');
+    list.classList.add('open');
+    return;
+  }
+
+  // Real Google Places autocomplete
+  const sessionToken = _acSessions[listId] || (_acSessions[listId] = new google.maps.places.AutocompleteSessionToken());
+  _acService.getPlacePredictions({
+    input: q,
+    sessionToken,
+    componentRestrictions: { country: 'ng' },
+    types: ['geocode','establishment'],
+  }, (preds, status) => {
+    if (status !== google.maps.places.PlacesServiceStatus.OK || !preds) { acHide(listId); return; }
+    list.innerHTML = preds.slice(0,5).map(p=>`
+      <div class="ac-item" onmousedown="acSelect('${input.id}','${listId}','${p.description.replace(/'/g,"\'")}')">
+        <span class="ac-item-ico">📍</span>
+        <div>
+          <div class="ac-item-main">${p.structured_formatting.main_text}</div>
+          <div class="ac-item-sub">${p.structured_formatting.secondary_text||''}</div>
+        </div>
+      </div>`).join('');
+    list.classList.add('open');
+    // Clear session token after full selection
+    _acSessions[listId] = null;
+  });
+}
+
+function acSelect(inputId, listId, value) {
+  const inp = document.getElementById(inputId);
+  if (inp) inp.value = value;
+  acHide(listId);
+  // Auto-fill city select if detectable
+  const cityMap = {
+    'Lagos':'Lagos','Abuja':'Abuja','Port Harcourt':'Port Harcourt',
+    'Kano':'Kano','Ibadan':'Ibadan','Enugu':'Enugu','FCT':'Abuja','Rivers':'Port Harcourt'
+  };
+  const citySelectMap = {
+    's-pu-addr':'s-pu-city','s-dl-addr':'s-dl-city',
+    'vs-pu-addr':'vs-pu-city','vs-dl-addr':'vs-dl-city'
+  };
+  const selId = citySelectMap[inputId];
+  if (selId) {
+    const sel = document.getElementById(selId);
+    if (sel) {
+      for (const [key, city] of Object.entries(cityMap)) {
+        if (value.includes(key)) { sel.value = city; break; }
+      }
+    }
+  }
+}
+
+function acHide(listId) {
+  const list = document.getElementById(listId);
+  if (list) list.classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════════
+//  RIDER GPS — broadcasts position to Firestore every 5s
+// ═══════════════════════════════════════════════════════
+let _gpsWatchId  = null;
+let _gpsInterval = null;
+let _lastCoords  = null;
+
+function startRiderGPS() {
+  if (!currentUser || currentUser.role !== 'rider') return;
+  if (!navigator.geolocation) return;
+
+  // Get immediate position
+  navigator.geolocation.getCurrentPosition(pos => {
+    _lastCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
+    _pushRiderLocation(_lastCoords);
+  }, err => {
+    // Fallback to Lagos coords if denied
+    _lastCoords = { lat: 6.5244, lng: 3.3792, acc: 999, simulated: true };
+    _pushRiderLocation(_lastCoords);
+  }, { enableHighAccuracy: true, timeout: 8000 });
+
+  // Watch for position changes
+  _gpsWatchId = navigator.geolocation.watchPosition(pos => {
+    _lastCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
+    _pushRiderLocation(_lastCoords);
+  }, null, { enableHighAccuracy: true, maximumAge: 5000 });
+
+  // Heartbeat every 8s to keep Firestore fresh
+  _gpsInterval = setInterval(() => {
+    if (_lastCoords) _pushRiderLocation(_lastCoords);
+  }, 8000);
+}
+
+function stopRiderGPS() {
+  if (_gpsWatchId !== null) { navigator.geolocation.clearWatch(_gpsWatchId); _gpsWatchId = null; }
+  if (_gpsInterval) { clearInterval(_gpsInterval); _gpsInterval = null; }
+  _lastCoords = null;
+}
+
+async function _pushRiderLocation(coords) {
+  if (!window.SWD_DB || !currentUser) return;
+  const db  = window.SWD_DB;
+  const set = window.SWD_SETDOC;
+  const d   = window.SWD_DOC;
+  try {
+    await set(d(db, 'swd', 'locations'), Object.assign(
+      {},
+      // Read existing first to not overwrite other riders - use merge via sub-document
+      { [`rider_${currentUser.id}`]: { ...coords, ts: Date.now(), riderId: currentUser.id, name: `${currentUser.firstName} ${currentUser.lastName}`, online: true } }
+    ), { merge: true });
+  } catch(e) { /* silent fail */ }
+}
+
+// Listen for all rider locations (used by maps)
+let _locListener = null;
+let _riderLocations = {}; // { riderId: {lat,lng,ts,name,online} }
+
+function startLocationListener() {
+  if (!window.SWD_DB || !window.SWD_ONSNAPSHOT) return;
+  const db   = window.SWD_DB;
+  const snap = window.SWD_ONSNAPSHOT;
+  const d    = window.SWD_DOC;
+  if (_locListener) { _locListener(); _locListener = null; }
+  _locListener = snap(d(db,'swd','locations'), snapshot => {
+    if (!snapshot.exists()) return;
+    const data = snapshot.data();
+    _riderLocations = {};
+    Object.keys(data).forEach(key => {
+      if (key.startsWith('rider_')) {
+        const r = data[key];
+        _riderLocations[r.riderId] = r;
+      }
+    });
+    // Refresh any open tracking map
+    if (_activeTrackingOrderId) updateTrackingMap(_activeTrackingOrderId);
+    if (_fleetMapActive) updateFleetMap();
+  }, () => {});
+}
+
+// ═══════════════════════════════════════════════════════
+//  TRACKING MAP  (shown in tracking modal for customer/vendor/admin)
+// ═══════════════════════════════════════════════════════
+let _trackMap      = null;
+let _trackMarker   = null;
+let _trackDestMark = null;
+let _activeTrackingOrderId = null;
+let _fleetMap      = null;
+let _fleetMarkers  = {};
+let _fleetMapActive = false;
+
+function openTrackingModal(orderId) {
+  const order = DB.orders.find(o=>o.id===orderId);
+  if (!order) return;
+  _activeTrackingOrderId = orderId;
+  document.getElementById('m-track').dataset.orderId = orderId;
+  document.getElementById('m-track-body').innerHTML = buildTrackingHTML(order);
+  openModal('m-track');
+  // Init map after modal is visible
+  setTimeout(() => initTrackingMap(order), 300);
+}
+
+function initTrackingMap(order) {
+  if (!window.SWD_MAPS_READY || !window.google?.maps) {
+    document.getElementById('track-map-wrap').style.display = 'none';
+    return;
+  }
+  const wrap = document.getElementById('track-map-wrap');
+  const canvas = document.getElementById('track-map-canvas');
+  wrap.style.display = 'block';
+
+  const riderLoc = order.riderId ? _riderLocations[order.riderId] : null;
+  const center = riderLoc ? { lat: riderLoc.lat, lng: riderLoc.lng } : { lat: 6.5244, lng: 3.3792 };
+
+  _trackMap = new google.maps.Map(canvas, {
+    center,
+    zoom: 14,
+    styles: _mapStyles(),
+    disableDefaultUI: false,
+    zoomControl: true,
+    streetViewControl: false,
+    mapTypeControl: false,
+    fullscreenControl: true,
+  });
+
+  // Rider marker
+  if (riderLoc) {
+    _trackMarker = new google.maps.Marker({
+      position: { lat: riderLoc.lat, lng: riderLoc.lng },
+      map: _trackMap,
+      title: riderLoc.name || 'Rider',
+      icon: {
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="18" fill="#F4722B" stroke="white" stroke-width="3"/>
+            <text x="20" y="26" text-anchor="middle" font-size="18">🏍️</text>
+          </svg>`),
+        scaledSize: new google.maps.Size(40, 40),
+        anchor: new google.maps.Point(20, 20),
+      }
+    });
+  }
+  startLocationListener();
+}
+
+function updateTrackingMap(orderId) {
+  if (!_trackMap || !_trackMarker) return;
+  const order = DB.orders.find(o=>o.id===orderId);
+  if (!order?.riderId) return;
+  const loc = _riderLocations[order.riderId];
+  if (!loc) return;
+  const pos = new google.maps.LatLng(loc.lat, loc.lng);
+  _trackMarker.setPosition(pos);
+  _trackMap.panTo(pos);
+}
+
+// ═══════════════════════════════════════════════════════
+//  FLEET MAP  (admin only)
+// ═══════════════════════════════════════════════════════
+function initFleetMap() {
+  _fleetMapActive = true;
+  renderFleetRiderList();
+
+  if (!window.SWD_MAPS_READY || !window.google?.maps) {
+    document.getElementById('fleet-map-placeholder').style.display = 'flex';
+    return;
+  }
+  document.getElementById('fleet-map-placeholder').style.display = 'none';
+
+  const canvas = document.getElementById('fleet-map-canvas');
+  _fleetMap = new google.maps.Map(canvas, {
+    center: { lat: 6.5244, lng: 3.3792 },
+    zoom: 12,
+    styles: _mapStyles(),
+    disableDefaultUI: false,
+    zoomControl: true,
+    streetViewControl: false,
+    mapTypeControl: false,
+    fullscreenControl: true,
+  });
+
+  startLocationListener();
+  updateFleetMap();
+}
+
+function updateFleetMap() {
+  if (!_fleetMap) return;
+  renderFleetRiderList();
+  const infoWin = new google.maps.InfoWindow();
+
+  DB.riders.forEach(rider => {
+    const loc = _riderLocations[rider.id];
+    const pos = loc ? { lat: loc.lat, lng: loc.lng } : null;
+    if (!pos) return;
+
+    const isOnline = rider.online && (!loc || Date.now()-loc.ts < 60000);
+    const color = isOnline ? '#22c55e' : '#94a3b8';
+
+    if (_fleetMarkers[rider.id]) {
+      _fleetMarkers[rider.id].setPosition(pos);
+    } else {
+      const marker = new google.maps.Marker({
+        position: pos,
+        map: _fleetMap,
+        title: `${rider.firstName} ${rider.lastName}`,
+        icon: {
+          url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+            <svg xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52">
+              <ellipse cx="22" cy="48" rx="8" ry="4" fill="rgba(0,0,0,.2)"/>
+              <path d="M22 0 C10 0 2 9 2 20 C2 36 22 52 22 52 C22 52 42 36 42 20 C42 9 34 0 22 0Z" fill="${color}" stroke="white" stroke-width="2"/>
+              <circle cx="22" cy="20" r="11" fill="white" opacity=".9"/>
+              <text x="22" y="24" text-anchor="middle" font-size="13">${rider.vehicle==='Car'?'🚗':'🏍️'}</text>
+            </svg>`),
+          scaledSize: new google.maps.Size(44, 52),
+          anchor: new google.maps.Point(22, 52),
+        }
+      });
+
+      marker.addListener('click', () => {
+        const activeOrder = DB.orders.find(o=>o.riderId===rider.id && ['In Transit','Out for Delivery'].includes(o.status));
+        infoWin.setContent(`
+          <div style="font-family:sans-serif;padding:4px;min-width:180px">
+            <div style="font-weight:700;font-size:14px;margin-bottom:4px">${rider.firstName} ${rider.lastName}</div>
+            <div style="font-size:12px;color:#666;margin-bottom:6px">${rider.vehicle} · ${rider.plate||''}</div>
+            <div style="display:flex;gap:6px;margin-bottom:4px">
+              <span style="background:${isOnline?'#dcfce7':'#f1f5f9'};color:${isOnline?'#166534':'#64748b'};padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">${isOnline?'● Online':'○ Offline'}</span>
+              <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">⭐ ${rider.rating}</span>
+            </div>
+            ${activeOrder?`<div style="font-size:11px;margin-top:6px;padding:6px;background:#fff7ed;border-radius:6px;border-left:3px solid #f97316">
+              <strong>Active:</strong> #${activeOrder.id}<br>
+              ${activeOrder.fromCity} → ${activeOrder.toCity}
+            </div>`:'<div style="font-size:11px;color:#999;margin-top:4px">No active order</div>'}
+            ${loc?.simulated?'<div style="font-size:10px;color:#999;margin-top:4px">⚠️ Simulated location</div>':''}
+          </div>`);
+        infoWin.open(_fleetMap, marker);
+      });
+
+      _fleetMarkers[rider.id] = marker;
+    }
+  });
+}
+
+function refreshFleetMap() {
+  _fleetMarkers = {};
+  if (_fleetMap) { initFleetMap(); }
+  renderFleetRiderList();
+}
+
+function renderFleetRiderList() {
+  const container = document.getElementById('fleet-rider-list');
+  const countEl   = document.getElementById('fleet-rider-count');
+  const onlineCt  = document.getElementById('fleet-online-count');
+  if (!container) return;
+
+  const onlineRiders  = DB.riders.filter(r=>r.online);
+  if (onlineCt) onlineCt.textContent = `● ${onlineRiders.length} Online`;
+  if (countEl)  countEl.textContent  = `${DB.riders.length} riders`;
+
+  if (!DB.riders.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-ico">🏍️</div><p>No riders yet</p></div>';
+    return;
+  }
+
+  container.innerHTML = DB.riders.map(rider => {
+    const loc       = _riderLocations[rider.id];
+    const isOnline  = rider.online && (!loc || Date.now()-loc.ts < 60000);
+    const lastSeen  = loc ? fmtTime(new Date(loc.ts).toISOString()) : 'Never';
+    const activeOrd = DB.orders.find(o=>o.riderId===rider.id && ['In Transit','Out for Delivery'].includes(o.status));
+    const bgColor   = isOnline ? 'var(--orange-lt)' : 'var(--off)';
+    const textColor = isOnline ? 'var(--orange-dk)' : 'var(--muted)';
+    return `
+      <div class="fleet-rider-card" onclick="focusFleetRider('${rider.id}')">
+        <div class="frc-avatar" style="background:${bgColor};color:${textColor}">${initials(rider.firstName,rider.lastName)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--dark)">${rider.firstName} ${rider.lastName}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">
+            ${rider.vehicle} · ${rider.city}
+            ${activeOrd?` · <span style="color:var(--orange);font-weight:600">Active order #${activeOrd.id}</span>`:''}
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Last seen: ${lastSeen}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div class="frc-online ${isOnline?'':'frc-offline'}"></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">⭐${rider.rating}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function focusFleetRider(riderId) {
+  const loc = _riderLocations[riderId];
+  if (!loc || !_fleetMap) return;
+  _fleetMap.panTo({ lat: loc.lat, lng: loc.lng });
+  _fleetMap.setZoom(15);
+  const marker = _fleetMarkers[riderId];
+  if (marker) google.maps.event.trigger(marker, 'click');
+}
+
+function _mapStyles() {
+  return [
+    { featureType:'water', elementType:'geometry', stylers:[{color:'#e0e8f0'}] },
+    { featureType:'landscape', elementType:'geometry', stylers:[{color:'#f5f7f0'}] },
+    { featureType:'road.highway', elementType:'geometry', stylers:[{color:'#ffffff'}] },
+    { featureType:'road.arterial', elementType:'geometry', stylers:[{color:'#ffffff'}] },
+    { featureType:'road.local', elementType:'geometry', stylers:[{color:'#fafafa'}] },
+    { featureType:'poi', elementType:'labels', stylers:[{visibility:'off'}] },
+    { featureType:'transit', elementType:'labels', stylers:[{visibility:'off'}] },
+  ];
+}
+
+window.addEventListener('load', () => {
+    if (window.SWD_MAPS_KEY && window.SWD_MAPS_KEY !== 'YOUR_GOOGLE_MAPS_KEY') {
+      const s = document.getElementById('gmaps-script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${window.SWD_MAPS_KEY}&libraries=places&callback=onGoogleMapsReady`;
+    }
+  });
+</script>
+
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp }                                  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -65,6 +490,74 @@ a{text-decoration:none;color:inherit}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* ── Autocomplete dropdown ─────────────────────────── */
+.ac-wrap { position:relative; }
+.ac-list {
+  position:absolute; left:0; right:0; top:calc(100% + 2px);
+  background:#fff; border:1.5px solid var(--border); border-radius:var(--r-md);
+  box-shadow:0 8px 24px rgba(0,0,0,.12); z-index:5000; max-height:240px;
+  overflow-y:auto; display:none;
+}
+.ac-list.open { display:block; }
+.ac-item {
+  display:flex; align-items:flex-start; gap:10px; padding:11px 14px;
+  cursor:pointer; border-bottom:1px solid var(--off); transition:background .15s;
+}
+.ac-item:last-child { border-bottom:none; }
+.ac-item:hover, .ac-item.active { background:var(--off); }
+.ac-item-ico { font-size:15px; margin-top:1px; flex-shrink:0; }
+.ac-item-main { font-size:13px; font-weight:600; color:var(--dark); }
+.ac-item-sub  { font-size:11px; color:var(--muted); margin-top:1px; }
+
+/* ── Live tracking map ─────────────────────────────── */
+.track-map-wrap {
+  width:100%; border-radius:var(--r-lg); overflow:hidden;
+  margin-bottom:14px; position:relative;
+  background:var(--off); border:1px solid var(--border);
+}
+.track-map-canvas { width:100%; height:260px; display:block; }
+@media(max-width:480px){ .track-map-canvas { height:200px; } }
+
+.rider-pulse-wrap { position:relative; display:inline-block; }
+.rider-pulse {
+  width:16px; height:16px; border-radius:50%;
+  background:var(--orange); border:2.5px solid #fff;
+  box-shadow:0 2px 8px rgba(244,114,43,.5);
+  position:relative; z-index:2;
+}
+.rider-pulse::after {
+  content:''; position:absolute; inset:-6px;
+  border-radius:50%; background:rgba(244,114,43,.25);
+  animation:ripple 1.5s ease-out infinite;
+}
+@keyframes ripple {
+  0% { transform:scale(0.6); opacity:.8; }
+  100% { transform:scale(2.2); opacity:0; }
+}
+
+/* ── Fleet map (admin) ─────────────────────────────── */
+.fleet-map-canvas { width:100%; height:420px; border-radius:var(--r-lg); display:block; }
+@media(max-width:600px){ .fleet-map-canvas { height:300px; } }
+
+.fleet-rider-card {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 14px; border-radius:var(--r-md);
+  background:var(--card); border:1px solid var(--border);
+  cursor:pointer; transition:border-color .15s, box-shadow .15s;
+}
+.fleet-rider-card:hover { border-color:var(--orange); box-shadow:var(--sh); }
+.fleet-rider-card .frc-avatar {
+  width:36px; height:36px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700;
+}
+.fleet-rider-card .frc-online {
+  width:9px; height:9px; border-radius:50%;
+  background:var(--green); border:1.5px solid #fff;
+  margin-left:auto; flex-shrink:0;
+}
+.fleet-rider-card .frc-offline { background:var(--muted); }
+
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -873,13 +1366,13 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px">
           <div>
             <div class="card mb14"><div class="card-hd"><span class="card-title">📍 Pickup Details</span></div><div class="card-body">
-              <div class="field"><span class="label">Pickup Address</span><input class="input" id="s-pu-addr" placeholder="Street address, area"></div>
+              <div class="field"><span class="label">Pickup Address</span><input class="input" id="s-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,'s-pu-addr-list')" onfocus="acSuggest(this,'s-pu-addr-list')" onblur="setTimeout(()=>acHide('s-pu-addr-list'),200)"><div class="ac-list" id="s-pu-addr-list"></div></div>
               <div class="field mt12"><span class="label">Pickup City</span><select class="select" id="s-pu-city"><option value="">Select city</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Sender Name</span><input class="input" id="s-snd-name" placeholder="Your full name"></div>
               <div class="field mt12"><span class="label">Sender Phone</span><input class="input" id="s-snd-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
             </div></div>
             <div class="card"><div class="card-hd"><span class="card-title">🏁 Delivery Details</span></div><div class="card-body">
-              <div class="field"><span class="label">Delivery Address</span><input class="input" id="s-dl-addr" placeholder="Street address, area"></div>
+              <div class="field"><span class="label">Delivery Address</span><input class="input" id="s-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,'s-dl-addr-list')" onfocus="acSuggest(this,'s-dl-addr-list')" onblur="setTimeout(()=>acHide('s-dl-addr-list'),200)"><div class="ac-list" id="s-dl-addr-list"></div></div>
               <div class="field mt12"><span class="label">Delivery City</span><select class="select" id="s-dl-city"><option value="">Select city</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Recipient Name</span><input class="input" id="s-rec-name" placeholder="Recipient full name"></div>
               <div class="field mt12"><span class="label">Recipient Phone</span><input class="input" id="s-rec-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
@@ -1121,11 +1614,11 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
           <div>
             <div class="card mb14"><div class="card-hd"><span class="card-title">📍 Pickup & Delivery</span></div><div class="card-body">
-              <div class="field"><span class="label">Pickup Address</span><input class="input" id="vs-pu" placeholder="Your store address" id="vs-pu-addr"></div>
+              <div class="field"><span class="label">Pickup Address</span><input class="input" id="vs-pu-addr" placeholder="Search pickup address..." autocomplete="off" oninput="acSuggest(this,'vs-pu-addr-list')" onfocus="acSuggest(this,'vs-pu-addr-list')" onblur="setTimeout(()=>acHide('vs-pu-addr-list'),200)"><div class="ac-list" id="vs-pu-addr-list"></div></div>
               <div class="field mt12"><span class="label">Pickup City</span><select class="select" id="vs-pu-city"><option value="">City</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
               <div class="field mt12"><span class="label">Recipient Name</span><input class="input" id="vs-rec-name" placeholder="Full name"></div>
               <div class="field mt12"><span class="label">Recipient Phone</span><input class="input" id="vs-rec-phone" type="tel" placeholder="+234 xxx xxx xxxx"></div>
-              <div class="field mt12"><span class="label">Delivery Address</span><input class="input" id="vs-dl-addr" placeholder="Delivery address"></div>
+              <div class="field mt12"><span class="label">Delivery Address</span><input class="input" id="vs-dl-addr" placeholder="Search delivery address..." autocomplete="off" oninput="acSuggest(this,'vs-dl-addr-list')" onfocus="acSuggest(this,'vs-dl-addr-list')" onblur="setTimeout(()=>acHide('vs-dl-addr-list'),200)"><div class="ac-list" id="vs-dl-addr-list"></div></div>
               <div class="field mt12"><span class="label">Delivery City</span><select class="select" id="vs-dl-city"><option value="">City</option><option>Lagos</option><option>Abuja</option><option>Port Harcourt</option><option>Kano</option><option>Ibadan</option><option>Enugu</option></select></div>
             </div></div>
           </div>
@@ -1213,6 +1706,7 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
       <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="showPane('ad','riders',this)"><div class="sb-ico" style="background:rgba(255,255,255,.06)">🏍️</div>Riders<div class="sb-badge" id="ad-rider-badge">0</div></div>
       <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="showPane('ad','customers',this)"><div class="sb-ico" style="background:rgba(255,255,255,.06)">👥</div>Customers</div>
       <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="showPane('ad','vendors',this)"><div class="sb-ico" style="background:rgba(255,255,255,.06)">🏪</div>Vendors</div>
+      <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="showPane('ad','fleet',this)"><div class="sb-ico" style="background:rgba(255,255,255,.06)">🗺️</div>Fleet Map</div>
       <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="showPane('ad','analytics',this)"><div class="sb-ico" style="background:rgba(255,255,255,.06)">📊</div>Analytics</div>
       <div class="sb-item" style="color:rgba(255,255,255,.45)" onclick="doLogout()"><div class="sb-ico" style="background:rgba(255,255,255,.06)">🚪</div>Sign Out</div>
     </aside>
@@ -1316,7 +1810,36 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
       </div>
 
       <!-- ANALYTICS (ADMIN) -->
-      <div id="ad-analytics" class="tab-pane">
+      <div id="ad-fleet" class="tab-pane">
+  <div class="page-hd">
+    <div class="page-row">
+      <h2 class="page-title">🗺️ Fleet Map</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span id="fleet-online-count" class="badge green" style="font-size:12px">● 0 Online</span>
+        <button class="btn btn-sm btn-ghost" onclick="refreshFleetMap()">↻ Refresh</button>
+      </div>
+    </div>
+  </div>
+  <!-- Map canvas -->
+  <div class="card mb14" style="padding:0;overflow:hidden">
+    <div id="fleet-map-canvas" class="fleet-map-canvas" style="background:var(--off);display:flex;align-items:center;justify-content:center">
+      <div id="fleet-map-placeholder" style="text-align:center;padding:32px">
+        <div style="font-size:40px;margin-bottom:10px">🗺️</div>
+        <div style="font-size:14px;font-weight:600;color:var(--dark);margin-bottom:6px">Fleet Map</div>
+        <div style="font-size:12px;color:var(--muted)">Add your Google Maps API key to enable live map</div>
+      </div>
+    </div>
+  </div>
+  <!-- Rider cards -->
+  <div class="card">
+    <div class="card-hd"><span class="card-title">All Riders</span><span class="card-sub" id="fleet-rider-count"></span></div>
+    <div class="card-body" id="fleet-rider-list" style="display:flex;flex-direction:column;gap:8px">
+      <div class="empty"><div class="empty-ico">🏍️</div><p>Loading riders...</p></div>
+    </div>
+  </div>
+</div>
+
+<div id="ad-analytics" class="tab-pane">
         <div class="page-hd"><h2 class="page-title">Analytics</h2></div>
         <div class="stat-grid mb16" id="ad-ana-stats"></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
@@ -2010,6 +2533,7 @@ function doLogout() {
     const rObj = DB.riders.find(r=>r.id===currentUser.id);
     if (rObj) rObj.online = false;
     currentUser.online = false;
+    stopRiderGPS();
     _flushToDB();
   }
   currentUser = null;
@@ -2046,6 +2570,8 @@ function showPane(portal, pane, el) {
   pView.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
   const target = document.getElementById(`${portal}-${pane}`);
   if (target) target.classList.add('active');
+  _fleetMapActive = false;
+  if (portal==='ad' && pane==='fleet') { setTimeout(initFleetMap, 150); }
   // sidebar
   pView.querySelectorAll('.sb-item').forEach(s=>s.classList.remove('active'));
   if (el && el.classList) el.classList.add('active');
@@ -2318,12 +2844,8 @@ function trackOrder() {
 }
 
 function openTrackModal(orderId) {
-  const order = DB.orders.find(o=>o.id===orderId);
-  if (!order) return;
-  document.getElementById('m-track-body').innerHTML = buildTrackingHTML(order);
-  const _tm = document.getElementById('m-track');
-  if (_tm) _tm.dataset.orderId = orderId;
-  openModal('m-track');
+  // Alias to new map-enabled function
+  openTrackingModal(orderId);
 }
 
 function buildTrackingHTML(order) {
@@ -2406,6 +2928,7 @@ function openOrderDetail(orderId) {
 // ═══════════════════════════════════════════════════════
 function initCustomer() {
   startPolling();
+  setTimeout(startLocationListener, 1000);
   const u = currentUser;
   const hour = new Date().getHours();
   setInner('c-greeting', `${hour<12?'Good morning':hour<18?'Good afternoon':'Good evening'}, ${u.firstName} 👋`);
@@ -2549,6 +3072,7 @@ function initRider() {
   saveDB();
   renderRiderDash();
   setTimeout(updateRiderNotifBadge,100);
+  startRiderGPS();
 }
 
 function renderRiderDash() {
@@ -2757,6 +3281,7 @@ function updateOnlineToggle() {
 // ═══════════════════════════════════════════════════════
 function initVendor() {
   startPolling();
+  setTimeout(startLocationListener, 1000);
   const u = currentUser;
   setInner('vn-biz-name', (u.bizName||'Business Dashboard')+' 🏪');
   setInner('vn-plan-line', 'Premium business account · 5% volume discount');
@@ -2857,6 +3382,7 @@ function renderVendorAnalytics() {
 // ═══════════════════════════════════════════════════════
 function initAdmin() {
   startPolling();
+  setTimeout(startLocationListener, 1000);
   renderAdminOverview();
   const now = new Date();
   setInner('ad-datetime', now.toLocaleDateString('en-NG',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
