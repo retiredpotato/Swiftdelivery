@@ -14,8 +14,14 @@
     window.SWD_MAPS_READY = true;
     if (typeof initAllAutocompletes === 'function') initAllAutocompletes();
   }
+  // V3: Paystack public test key. Public keys are safe in client code by
+  // design (Paystack secrets are server-side). Replace with your own
+  // pk_test_... from dashboard.paystack.com → Settings → API Keys.
+  window.SWD_PAYSTACK_KEY = "REPLACE_PAYSTACK_KEY";
 </script>
 <script id="gmaps-script" defer></script>
+<!-- V3: Paystack inline checkout (test mode) -->
+<script src="https://js.paystack.co/v1/inline.js" defer></script>
 <script>
   // Load Maps after page so it doesn't block render
   
@@ -536,6 +542,7 @@ window.addEventListener('load', () => {
 <script type="module">
 import { initializeApp }                                  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot }  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
 // Steps: console.firebase.google.com → New Project → Firestore → Web App
@@ -555,11 +562,17 @@ window.SWD_FB_CONFIGURED = _configured;
 if (_configured) {
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
+  const stg = getStorage(app);
   window.SWD_DB         = db;
   window.SWD_DOC        = doc;
   window.SWD_SETDOC     = setDoc;
   window.SWD_GETDOC     = getDoc;
   window.SWD_ONSNAPSHOT = onSnapshot;
+  window.SWD_STORAGE    = stg;
+  window.SWD_STG_REF    = ref;
+  window.SWD_UPLOAD     = uploadBytes;
+  window.SWD_UPLOAD_STR = uploadString;
+  window.SWD_GETURL     = getDownloadURL;
 } else {
   window.SWD_DB = null;
 }
@@ -2013,6 +2026,35 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
   </div>
 </div></div>
 
+<!-- V3: View POD modal (customer / admin) -->
+<div class="modal-overlay" id="m-pod-view"><div class="modal" style="max-width:460px">
+  <span class="modal-pill"></span>
+  <div class="modal-hd"><h3>📦 Proof of Delivery</h3><button class="modal-x" onclick="closeModal('m-pod-view')">✕</button></div>
+  <div class="modal-body" id="m-pod-view-body"></div>
+</div></div>
+
+<!-- V3: Rate-your-rider modal (customer) -->
+<div class="modal-overlay" id="m-rate"><div class="modal" style="max-width:380px">
+  <span class="modal-pill"></span>
+  <div class="modal-hd"><h3>⭐ Rate your delivery</h3><button class="modal-x" onclick="closeModal('m-rate')">✕</button></div>
+  <div class="modal-body">
+    <div id="m-rate-rider" style="font-size:13px;color:var(--muted);margin-bottom:6px;text-align:center"></div>
+    <div class="field"><span class="label" style="text-align:center;display:block">How was your experience?</span>
+      <div id="rate-stars" style="display:flex;justify-content:center;gap:10px;font-size:38px;cursor:pointer;padding:8px 0;user-select:none">
+        <span data-star="1" onclick="_pickStar(1)">☆</span>
+        <span data-star="2" onclick="_pickStar(2)">☆</span>
+        <span data-star="3" onclick="_pickStar(3)">☆</span>
+        <span data-star="4" onclick="_pickStar(4)">☆</span>
+        <span data-star="5" onclick="_pickStar(5)">☆</span>
+      </div>
+    </div>
+    <div class="field"><span class="label">Tell us more (optional)</span>
+      <textarea class="input" id="rate-comment" rows="3" maxlength="500" placeholder="Anything to share with the team?"></textarea>
+    </div>
+    <button class="btn btn-full btn-primary mt14" onclick="submitRating()">Submit Rating</button>
+  </div>
+</div></div>
+
 <!-- Order Detail modal -->
 <div class="modal-overlay" id="m-order-detail"><div class="modal" style="max-width:480px">
   <span class="modal-pill"></span>
@@ -2167,6 +2209,7 @@ const DB = {
   riders: [], // dynamic
   notifications: [],
   riderNotifs: {},
+  reviews: [], // V3: customer ratings/reviews of riders
   podOrderId: null,
 };
 
@@ -2250,12 +2293,13 @@ DB.riders.push(
 //  FIREBASE FIRESTORE — REAL-TIME DATABASE
 // ═══════════════════════════════════════════════════════
 //
-//  Firestore layout (5 documents in collection "swd"):
+//  Firestore layout (6 documents in collection "swd"):
 //    swd/users        → { list: [...] }
 //    swd/orders       → { list: [...] }
 //    swd/riders       → { list: [...] }
 //    swd/misc         → { notifications: [...], riderNotifs: {...} }
 //    swd/transactions → { data: {...} }
+//    swd/reviews      → { list: [...] }   (V3 — customer ratings)
 //
 // ─────────────────────────────────────────────────────────
 let   _unsubscribers = [];   // Firestore listener cleanup fns
@@ -2280,6 +2324,7 @@ async function _flushToDB() {
       set(d(db, 'swd', 'riders'),       { list: DB.riders }),
       set(d(db, 'swd', 'misc'),         { notifications: DB.notifications, riderNotifs: DB.riderNotifs }),
       set(d(db, 'swd', 'transactions'), { data: TRANSACTIONS }),
+      set(d(db, 'swd', 'reviews'),      { list: DB.reviews }),
     ]);
   } catch(e) { console.warn('[SWD] Firestore write error:', e); }
 }
@@ -2295,12 +2340,13 @@ async function loadDBFromStorage() {
   setMsg('Loading data...');
 
   try {
-    const [uSnap, oSnap, rSnap, mSnap, tSnap] = await Promise.all([
+    const [uSnap, oSnap, rSnap, mSnap, tSnap, revSnap] = await Promise.all([
       get(d(db, 'swd', 'users')),
       get(d(db, 'swd', 'orders')),
       get(d(db, 'swd', 'riders')),
       get(d(db, 'swd', 'misc')),
       get(d(db, 'swd', 'transactions')),
+      get(d(db, 'swd', 'reviews')),
     ]);
 
     if (!uSnap.exists()) {
@@ -2319,6 +2365,9 @@ async function loadDBFromStorage() {
       }
       if (tSnap.exists() && tSnap.data()?.data) {
         Object.assign(TRANSACTIONS, tSnap.data().data);
+      }
+      if (revSnap.exists() && Array.isArray(revSnap.data()?.list)) {
+        DB.reviews = revSnap.data().list;
       }
     }
 
@@ -2377,6 +2426,8 @@ function _attachListeners() {
   listen('orders', data => {
     if (Array.isArray(data.list)) DB.orders = data.list;
     _refreshUI();
+    // V3: surface order status changes as browser pushes when tab is hidden
+    if (typeof _v3PushOnOrdersUpdate === 'function') _v3PushOnOrdersUpdate();
     // Refresh open tracking modal — only update the status badge+progress,
     // not the entire body (that would destroy the live map canvas)
     const tm = document.getElementById('m-track');
@@ -2406,6 +2457,13 @@ function _attachListeners() {
     if (data.notifications) DB.notifications = data.notifications;
     if (data.riderNotifs)   DB.riderNotifs   = data.riderNotifs;
     if (currentUser?.role === 'rider') updateRiderNotifBadge();
+    // V3: surface new rider-notifs as browser pushes when tab is hidden
+    if (typeof _v3PushOnRiderNotifsUpdate === 'function') _v3PushOnRiderNotifsUpdate();
+  });
+
+  listen('reviews', data => {
+    if (Array.isArray(data.list)) DB.reviews = data.list;
+    _refreshUI();
   });
 }
 
@@ -2446,6 +2504,7 @@ function clearDB() {
     set(d(db,'swd','riders'),       { list: [] }),
     set(d(db,'swd','misc'),         { notifications: [], riderNotifs: {} }),
     set(d(db,'swd','transactions'), { data: {} }),
+    set(d(db,'swd','reviews'),      { list: [] }),
   ]).then(() => { sessionStorage.clear(); location.reload(); });
 }
 
@@ -2454,6 +2513,7 @@ let authMode = 'signin';
 let riderOnline = true;
 let sigCtx = null, sigDrawing = false;
 let currentPODOrderId = null;
+let _podPhotoFile = null;     // V3: stashed File from photo input, uploaded on confirm
 
 // ═══════════════════════════════════════════════════════
 //  ROUTING
@@ -3097,6 +3157,9 @@ function initCustomer() {
   loadProfile('c');
   renderCustomerDash();
   updateSendQuote();
+  // V3: ask for browser push permission so status updates surface when tab is hidden
+  setTimeout(requestPushPermission, 1500);
+  _seedPushBaseline();
 }
 
 function renderCustomerDash() {
@@ -3120,7 +3183,7 @@ function renderCustomerDash() {
       <td><div class="tbl-route">${o.fromCity}<span class="tbl-arrow"> → </span>${o.toCity}</div></td>
       <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
       <td style="color:var(--orange);font-weight:600;font-size:12px">${o.eta}</td>
-      <td><button class="btn btn-sm btn-primary" onclick="openTrackModal('${o.id}')">Track</button></td>
+      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" onclick="openTrackModal('${o.id}')">Track</button>${o.paymentStatus !== 'paid' ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="payNow('${o.id}')">💳 Pay</button>` : `<span style="font-size:11px;color:var(--green);align-self:center;font-weight:600">✓ Paid</span>`}</div></td>
     </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No active deliveries right now.</td></tr>`);
 
   const recent = [...myOrders].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,5);
@@ -3148,7 +3211,7 @@ function renderHistory() {
       <td style="font-size:11px;color:var(--muted)">${fmtDate(o.createdAt)}</td>
       <td>₦${(o.amount+o.insurance).toLocaleString()}</td>
       <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
-      <td><div style="display:flex;gap:5px"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button></div></td>
+      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button>${o.pod ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openPODView('${o.id}')">📦 POD</button>` : ''}${(o.status==='Delivered' && !o.rating && o.riderId) ? `<button class="btn btn-sm btn-primary" style="padding:6px 9px;font-size:11px" onclick="openRatingModal('${o.id}')">⭐ Rate</button>` : ''}${o.rating ? `<span style="font-size:11px;color:#f59e0b;align-self:center;font-weight:600">★ ${o.rating.stars}</span>` : ''}</div></td>
     </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No orders found.</td></tr>`);
 }
 
@@ -3234,6 +3297,9 @@ function initRider() {
   renderRiderDash();
   setTimeout(updateRiderNotifBadge,100);
   startRiderGPS();
+  // V3: ask for browser push so new-order alerts fire when tab is hidden
+  setTimeout(requestPushPermission, 1500);
+  _seedPushBaseline();
 }
 
 function renderRiderDash() {
@@ -3981,14 +4047,74 @@ function printWaybill() {
 // ═══════════════════════════════════════════════════════
 function openPOD(orderId) {
   currentPODOrderId = orderId;
+  _podPhotoFile = null;
   document.getElementById('pod-note').value = '';
   document.getElementById('pod-photo-name').textContent = 'No photo selected';
+  const fileInput = document.querySelector('#m-pod input[type=file]');
+  if (fileInput) fileInput.value = '';
   clearSig();
   openModal('m-pod');
   setTimeout(initSig, 100);
 }
 function handlePhoto(input) {
-  if (input.files[0]) setInner('pod-photo-name', `✅ ${input.files[0].name}`);
+  if (input.files[0]) {
+    _podPhotoFile = input.files[0];
+    setInner('pod-photo-name', `✅ ${input.files[0].name}`);
+  }
+}
+
+// V3: Upload POD artifacts to Firebase Storage. Returns { photoUrl, signatureUrl }.
+// Failures are non-fatal — delivery is still confirmed; URLs may be null.
+async function _uploadPODArtifacts(orderId) {
+  const stg    = window.SWD_STORAGE;
+  const sref   = window.SWD_STG_REF;
+  const upload = window.SWD_UPLOAD;
+  const upStr  = window.SWD_UPLOAD_STR;
+  const getUrl = window.SWD_GETURL;
+  if (!stg) return { photoUrl: null, signatureUrl: null };
+
+  let photoUrl = null;
+  let signatureUrl = null;
+
+  if (_podPhotoFile) {
+    const ext = (_podPhotoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+    try {
+      const r = sref(stg, `pod/${orderId}/photo.${ext || 'jpg'}`);
+      await upload(r, _podPhotoFile, { contentType: _podPhotoFile.type || 'image/jpeg' });
+      photoUrl = await getUrl(r);
+    } catch (e) { console.warn('[SWD] POD photo upload failed:', e); }
+  }
+
+  const canvas = document.getElementById('sig-pad');
+  if (canvas) {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      // Heuristic: blank canvas data URL is short; skip if signature is empty
+      if (dataUrl.length > 2000) {
+        const sigRef = sref(stg, `pod/${orderId}/signature.png`);
+        await upStr(sigRef, dataUrl, 'data_url');
+        signatureUrl = await getUrl(sigRef);
+      }
+    } catch (e) { console.warn('[SWD] POD signature upload failed:', e); }
+  }
+
+  return { photoUrl, signatureUrl };
+}
+
+// V3: View POD artifacts (customer / admin)
+function openPODView(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o || !o.pod) { toast('No proof of delivery on file.'); return; }
+  const p = o.pod;
+  setInner('m-pod-view-body', `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      ${p.photoUrl ? `<div><div class="label">Photo</div><img src="${p.photoUrl}" style="width:100%;border-radius:12px;border:1px solid var(--border)" alt="POD photo"></div>` : `<div style="font-size:13px;color:var(--muted)">No photo provided.</div>`}
+      ${p.signatureUrl ? `<div><div class="label">Signature</div><img src="${p.signatureUrl}" style="width:100%;background:#fff;border-radius:12px;border:1px solid var(--border)" alt="Signature"></div>` : `<div style="font-size:13px;color:var(--muted)">No signature captured.</div>`}
+      ${p.note ? `<div><div class="label">Delivery note</div><div style="font-size:13px;background:var(--off);padding:10px 12px;border-radius:10px">${p.note.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div></div>` : ''}
+      <div style="font-size:11px;color:var(--muted)">Completed ${p.completedAt ? fmtDate(p.completedAt) : ''}</div>
+    </div>
+  `);
+  openModal('m-pod-view');
 }
 function initSig() {
   const c = document.getElementById('sig-pad');
@@ -4005,18 +4131,31 @@ function initSig() {
   c.ontouchend=()=>sigDrawing=false;
 }
 function clearSig() { if(sigCtx){const c=document.getElementById('sig-pad');if(c)sigCtx.clearRect(0,0,c.width,c.height);} }
-function confirmPOD() {
+async function confirmPOD() {
   if (!currentPODOrderId) return;
   // Prevent double-submit
   const btn = document.querySelector('#m-pod .btn-green');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
 
-  const o = DB.orders.find(x=>x.id===currentPODOrderId);
+  const orderId = currentPODOrderId;
+  const note    = document.getElementById('pod-note')?.value || '';
+
+  // V3: upload photo + signature to Firebase Storage before flushing the order
+  const { photoUrl, signatureUrl } = await _uploadPODArtifacts(orderId);
+
+  const o = DB.orders.find(x=>x.id===orderId);
   if (o && o.status !== 'Delivered') {
-    o.status   = 'Delivered';
-    o.progress = 100;
-    o.eta      = 'Done';
+    o.status      = 'Delivered';
+    o.progress    = 100;
+    o.eta         = 'Done';
     o.deliveredAt = new Date().toISOString();
+    o.pod = {
+      photoUrl,
+      signatureUrl,
+      note,
+      completedAt: o.deliveredAt,
+      completedBy: currentUser?.id || null,
+    };
     // Credit the rider
     const rider = DB.riders.find(r=>r.id===o.riderId) || (currentUser?.role==='rider'?currentUser:null);
     if (rider) {
@@ -4028,17 +4167,221 @@ function confirmPOD() {
         currentUser.walletBalance   = rider.walletBalance;
       }
     }
-    addNotification(`✅ Order #${currentPODOrderId} marked as delivered.`);
+    addNotification(`✅ Order #${orderId} marked as delivered.`);
   }
-  const savedId = currentPODOrderId;
   currentPODOrderId = null;
+  _podPhotoFile = null;
   // Flush to Firestore immediately (skip debounce)
-  _flushToDB();
+  await _flushToDB();
   closeModal('m-pod');
-  toast('✅ Delivery confirmed! Payment credited.', 'success');
+  const proofMsg = (photoUrl || signatureUrl) ? '✅ Delivery confirmed! Proof saved.' : '✅ Delivery confirmed!';
+  toast(proofMsg, 'success');
   renderRiderDash();
   renderRiderOrders();
   if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Delivery'; }
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: CUSTOMER RATINGS & REVIEWS
+// ═══════════════════════════════════════════════════════
+let _ratingOrderId = null;
+let _ratingStars   = 0;
+
+function openRatingModal(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o) return;
+  if (o.rating)               { toast('You already rated this delivery.'); return; }
+  if (o.status !== 'Delivered'){ toast('Rate only after delivery.'); return; }
+  _ratingOrderId = orderId;
+  _ratingStars = 0;
+  _drawStars(0);
+  const rider = DB.riders.find(r => r.id === o.riderId);
+  setInner('m-rate-rider', rider ? `Your rider: <strong>${rider.firstName} ${rider.lastName}</strong>` : 'Your delivery is in!');
+  const ta = document.getElementById('rate-comment');
+  if (ta) ta.value = '';
+  openModal('m-rate');
+}
+
+function _pickStar(n) {
+  _ratingStars = n;
+  _drawStars(n);
+}
+
+function _drawStars(n) {
+  const wrap = document.getElementById('rate-stars');
+  if (!wrap) return;
+  Array.from(wrap.children).forEach((el, i) => {
+    el.textContent = i < n ? '★' : '☆';
+    el.style.color = i < n ? '#f59e0b' : '#cbd5e1';
+  });
+}
+
+function submitRating() {
+  if (!_ratingOrderId) return;
+  if (!_ratingStars)  { toast('Please pick a star rating.'); return; }
+
+  const o = DB.orders.find(x => x.id === _ratingOrderId);
+  if (!o)        { closeModal('m-rate'); return; }
+  if (o.rating)  { closeModal('m-rate'); toast('Already rated.'); return; }
+
+  const comment = (document.getElementById('rate-comment')?.value || '').trim().slice(0, 500);
+
+  const review = {
+    id:         'rv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    orderId:    o.id,
+    customerId: o.customerId,
+    riderId:    o.riderId,
+    stars:      _ratingStars,
+    comment,
+    createdAt:  new Date().toISOString(),
+  };
+  DB.reviews.push(review);
+  o.rating = { stars: _ratingStars, comment, ratedAt: review.createdAt };
+
+  // Recompute rider running average from full review history (idempotent)
+  if (o.riderId) {
+    const riderReviews = DB.reviews.filter(r => r.riderId === o.riderId);
+    if (riderReviews.length) {
+      const avg = riderReviews.reduce((s, r) => s + r.stars, 0) / riderReviews.length;
+      const rounded = Math.round(avg * 10) / 10;
+      const r1 = DB.riders.find(r => r.id === o.riderId);
+      const u1 = DB.users.find(u  => u.id === o.riderId);
+      if (r1) r1.rating = rounded;
+      if (u1) u1.rating = rounded;
+    }
+  }
+
+  _ratingOrderId = null;
+  _ratingStars   = 0;
+  saveDB();
+  closeModal('m-rate');
+  toast('🙏 Thanks for the feedback!', 'success');
+  if (currentUser?.role === 'customer') { renderCustomerDash(); renderHistory(); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: PAYMENTS (Paystack inline, test mode)
+// ═══════════════════════════════════════════════════════
+function payNow(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o)                          { toast('Order not found.'); return; }
+  if (o.paymentStatus === 'paid')  { toast('Already paid.'); return; }
+  if (typeof PaystackPop === 'undefined') {
+    toast('Payment SDK not loaded yet — try again in a moment.', 'error'); return;
+  }
+  const key = window.SWD_PAYSTACK_KEY;
+  if (!key || key === 'REPLACE_PAYSTACK_KEY') {
+    toast('Paystack key not configured. See README.', 'error'); return;
+  }
+  const customer   = DB.users.find(u => u.id === o.customerId) || currentUser || {};
+  const amountKobo = ((o.amount || 0) + (o.insurance || 0)) * 100;
+  if (amountKobo < 100) { toast('Order has no payable amount.', 'error'); return; }
+
+  const handler = PaystackPop.setup({
+    key,
+    email:    customer.email || 'demo@swiftdelivery.ng',
+    amount:   amountKobo,
+    currency: 'NGN',
+    ref:      'SWD-PAY-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+    metadata: {
+      orderId:    o.id,
+      customerId: o.customerId,
+      custom_fields: [
+        { display_name: 'Order ID', variable_name: 'order_id', value: o.id },
+      ],
+    },
+    callback: function (response) {
+      const naira = (o.amount || 0) + (o.insurance || 0);
+      o.paymentStatus = 'paid';
+      o.paymentRef    = response.reference;
+      o.paymentAmount = naira;
+      o.paidAt        = new Date().toISOString();
+      addTransaction(o.customerId, {
+        type:   'debit',
+        desc:   `Order #${o.id} (Paystack)`,
+        amount: naira,
+        date:   o.paidAt,
+        ref:    response.reference,
+      });
+      saveDB();
+      toast('✅ Payment successful!', 'success');
+      if (currentUser?.role === 'customer') {
+        renderCustomerDash();
+        if (typeof renderHistory === 'function') renderHistory();
+        if (typeof renderWallet  === 'function') renderWallet();
+      }
+    },
+    onClose: function () { /* user dismissed — no state change */ },
+  });
+  handler.openIframe();
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: BROWSER PUSH NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+//  Free, no backend: when a Firestore listener brings a state change
+//  that affects the current user, fire a Notification if the tab is
+//  hidden/unfocused. Doesn't work for closed-tab pushes (that needs
+//  FCM + service worker + Cloud Functions).
+let _pushPrevOrderStatus     = {};   // orderId → last seen status
+let _pushPrevRiderNotifCount = 0;
+
+function requestPushPermission() {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+}
+
+function _seedPushBaseline() {
+  // Snapshot current state so we don't fire pushes for orders that already exist.
+  _pushPrevOrderStatus = {};
+  if (currentUser?.role === 'customer') {
+    DB.orders
+      .filter(o => o.customerId === currentUser.id)
+      .forEach(o => { _pushPrevOrderStatus[o.id] = o.status; });
+  }
+  if (currentUser?.role === 'rider') {
+    _pushPrevRiderNotifCount = (DB.riderNotifs?.[currentUser.id] || []).length;
+  }
+}
+
+function _firePush(title, body, opts) {
+  opts = opts || {};
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  // Only push if the user can't see the tab — otherwise the in-app toast/notif is enough
+  const visible = document.visibilityState === 'visible' && document.hasFocus();
+  if (visible && !opts.alwaysShow) return;
+  try {
+    const n = new Notification(title, { body, tag: opts.tag, silent: !!opts.silent });
+    setTimeout(() => { try { n.close(); } catch (e) {} }, 8000);
+  } catch (e) { console.warn('[SWD] push failed:', e); }
+}
+
+function _v3PushOnOrdersUpdate() {
+  if (!currentUser || currentUser.role !== 'customer') return;
+  DB.orders
+    .filter(o => o.customerId === currentUser.id)
+    .forEach(o => {
+      const prev = _pushPrevOrderStatus[o.id];
+      if (prev !== undefined && prev !== o.status) {
+        _firePush(`SwiftDelivery · #${o.id}`, `Status: ${o.status}`, { tag: 'swd-order-' + o.id });
+      }
+      _pushPrevOrderStatus[o.id] = o.status;
+    });
+}
+
+function _v3PushOnRiderNotifsUpdate() {
+  if (!currentUser || currentUser.role !== 'rider') return;
+  const list = DB.riderNotifs?.[currentUser.id] || [];
+  if (list.length > _pushPrevRiderNotifCount && _pushPrevRiderNotifCount > 0) {
+    const newest = list[0];
+    if (newest && newest.msg) {
+      _firePush('SwiftDelivery', newest.msg, { tag: 'swd-rider-notif' });
+    }
+  }
+  _pushPrevRiderNotifCount = list.length;
 }
 
 // ═══════════════════════════════════════════════════════
