@@ -1,0 +1,24 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Node / build
+node_modules/
+dist/
+build/
+.cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

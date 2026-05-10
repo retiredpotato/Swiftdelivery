@@ -536,6 +536,7 @@ window.addEventListener('load', () => {
 <script type="module">
 import { initializeApp }                                  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot }  from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
 // Steps: console.firebase.google.com → New Project → Firestore → Web App
@@ -555,11 +556,17 @@ window.SWD_FB_CONFIGURED = _configured;
 if (_configured) {
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
+  const stg = getStorage(app);
   window.SWD_DB         = db;
   window.SWD_DOC        = doc;
   window.SWD_SETDOC     = setDoc;
   window.SWD_GETDOC     = getDoc;
   window.SWD_ONSNAPSHOT = onSnapshot;
+  window.SWD_STORAGE    = stg;
+  window.SWD_STG_REF    = ref;
+  window.SWD_UPLOAD     = uploadBytes;
+  window.SWD_UPLOAD_STR = uploadString;
+  window.SWD_GETURL     = getDownloadURL;
 } else {
   window.SWD_DB = null;
 }
@@ -2167,6 +2174,7 @@ const DB = {
   riders: [], // dynamic
   notifications: [],
   riderNotifs: {},
+  reviews: [], // V3: customer ratings/reviews of riders
   podOrderId: null,
 };
 
@@ -2250,12 +2258,13 @@ DB.riders.push(
 //  FIREBASE FIRESTORE — REAL-TIME DATABASE
 // ═══════════════════════════════════════════════════════
 //
-//  Firestore layout (5 documents in collection "swd"):
+//  Firestore layout (6 documents in collection "swd"):
 //    swd/users        → { list: [...] }
 //    swd/orders       → { list: [...] }
 //    swd/riders       → { list: [...] }
 //    swd/misc         → { notifications: [...], riderNotifs: {...} }
 //    swd/transactions → { data: {...} }
+//    swd/reviews      → { list: [...] }   (V3 — customer ratings)
 //
 // ─────────────────────────────────────────────────────────
 let   _unsubscribers = [];   // Firestore listener cleanup fns
@@ -2280,6 +2289,7 @@ async function _flushToDB() {
       set(d(db, 'swd', 'riders'),       { list: DB.riders }),
       set(d(db, 'swd', 'misc'),         { notifications: DB.notifications, riderNotifs: DB.riderNotifs }),
       set(d(db, 'swd', 'transactions'), { data: TRANSACTIONS }),
+      set(d(db, 'swd', 'reviews'),      { list: DB.reviews }),
     ]);
   } catch(e) { console.warn('[SWD] Firestore write error:', e); }
 }
@@ -2295,12 +2305,13 @@ async function loadDBFromStorage() {
   setMsg('Loading data...');
 
   try {
-    const [uSnap, oSnap, rSnap, mSnap, tSnap] = await Promise.all([
+    const [uSnap, oSnap, rSnap, mSnap, tSnap, revSnap] = await Promise.all([
       get(d(db, 'swd', 'users')),
       get(d(db, 'swd', 'orders')),
       get(d(db, 'swd', 'riders')),
       get(d(db, 'swd', 'misc')),
       get(d(db, 'swd', 'transactions')),
+      get(d(db, 'swd', 'reviews')),
     ]);
 
     if (!uSnap.exists()) {
@@ -2319,6 +2330,9 @@ async function loadDBFromStorage() {
       }
       if (tSnap.exists() && tSnap.data()?.data) {
         Object.assign(TRANSACTIONS, tSnap.data().data);
+      }
+      if (revSnap.exists() && Array.isArray(revSnap.data()?.list)) {
+        DB.reviews = revSnap.data().list;
       }
     }
 
@@ -2407,6 +2421,11 @@ function _attachListeners() {
     if (data.riderNotifs)   DB.riderNotifs   = data.riderNotifs;
     if (currentUser?.role === 'rider') updateRiderNotifBadge();
   });
+
+  listen('reviews', data => {
+    if (Array.isArray(data.list)) DB.reviews = data.list;
+    _refreshUI();
+  });
 }
 
 function _detachListeners() {
@@ -2446,6 +2465,7 @@ function clearDB() {
     set(d(db,'swd','riders'),       { list: [] }),
     set(d(db,'swd','misc'),         { notifications: [], riderNotifs: {} }),
     set(d(db,'swd','transactions'), { data: {} }),
+    set(d(db,'swd','reviews'),      { list: [] }),
   ]).then(() => { sessionStorage.clear(); location.reload(); });
 }
 
