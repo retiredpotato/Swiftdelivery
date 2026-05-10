@@ -2020,6 +2020,13 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
   </div>
 </div></div>
 
+<!-- V3: View POD modal (customer / admin) -->
+<div class="modal-overlay" id="m-pod-view"><div class="modal" style="max-width:460px">
+  <span class="modal-pill"></span>
+  <div class="modal-hd"><h3>📦 Proof of Delivery</h3><button class="modal-x" onclick="closeModal('m-pod-view')">✕</button></div>
+  <div class="modal-body" id="m-pod-view-body"></div>
+</div></div>
+
 <!-- Order Detail modal -->
 <div class="modal-overlay" id="m-order-detail"><div class="modal" style="max-width:480px">
   <span class="modal-pill"></span>
@@ -2474,6 +2481,7 @@ let authMode = 'signin';
 let riderOnline = true;
 let sigCtx = null, sigDrawing = false;
 let currentPODOrderId = null;
+let _podPhotoFile = null;     // V3: stashed File from photo input, uploaded on confirm
 
 // ═══════════════════════════════════════════════════════
 //  ROUTING
@@ -3168,7 +3176,7 @@ function renderHistory() {
       <td style="font-size:11px;color:var(--muted)">${fmtDate(o.createdAt)}</td>
       <td>₦${(o.amount+o.insurance).toLocaleString()}</td>
       <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
-      <td><div style="display:flex;gap:5px"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button></div></td>
+      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button>${o.pod ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openPODView('${o.id}')">📦 POD</button>` : ''}</div></td>
     </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No orders found.</td></tr>`);
 }
 
@@ -4001,14 +4009,74 @@ function printWaybill() {
 // ═══════════════════════════════════════════════════════
 function openPOD(orderId) {
   currentPODOrderId = orderId;
+  _podPhotoFile = null;
   document.getElementById('pod-note').value = '';
   document.getElementById('pod-photo-name').textContent = 'No photo selected';
+  const fileInput = document.querySelector('#m-pod input[type=file]');
+  if (fileInput) fileInput.value = '';
   clearSig();
   openModal('m-pod');
   setTimeout(initSig, 100);
 }
 function handlePhoto(input) {
-  if (input.files[0]) setInner('pod-photo-name', `✅ ${input.files[0].name}`);
+  if (input.files[0]) {
+    _podPhotoFile = input.files[0];
+    setInner('pod-photo-name', `✅ ${input.files[0].name}`);
+  }
+}
+
+// V3: Upload POD artifacts to Firebase Storage. Returns { photoUrl, signatureUrl }.
+// Failures are non-fatal — delivery is still confirmed; URLs may be null.
+async function _uploadPODArtifacts(orderId) {
+  const stg    = window.SWD_STORAGE;
+  const sref   = window.SWD_STG_REF;
+  const upload = window.SWD_UPLOAD;
+  const upStr  = window.SWD_UPLOAD_STR;
+  const getUrl = window.SWD_GETURL;
+  if (!stg) return { photoUrl: null, signatureUrl: null };
+
+  let photoUrl = null;
+  let signatureUrl = null;
+
+  if (_podPhotoFile) {
+    const ext = (_podPhotoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+    try {
+      const r = sref(stg, `pod/${orderId}/photo.${ext || 'jpg'}`);
+      await upload(r, _podPhotoFile, { contentType: _podPhotoFile.type || 'image/jpeg' });
+      photoUrl = await getUrl(r);
+    } catch (e) { console.warn('[SWD] POD photo upload failed:', e); }
+  }
+
+  const canvas = document.getElementById('sig-pad');
+  if (canvas) {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      // Heuristic: blank canvas data URL is short; skip if signature is empty
+      if (dataUrl.length > 2000) {
+        const sigRef = sref(stg, `pod/${orderId}/signature.png`);
+        await upStr(sigRef, dataUrl, 'data_url');
+        signatureUrl = await getUrl(sigRef);
+      }
+    } catch (e) { console.warn('[SWD] POD signature upload failed:', e); }
+  }
+
+  return { photoUrl, signatureUrl };
+}
+
+// V3: View POD artifacts (customer / admin)
+function openPODView(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o || !o.pod) { toast('No proof of delivery on file.'); return; }
+  const p = o.pod;
+  setInner('m-pod-view-body', `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      ${p.photoUrl ? `<div><div class="label">Photo</div><img src="${p.photoUrl}" style="width:100%;border-radius:12px;border:1px solid var(--border)" alt="POD photo"></div>` : `<div style="font-size:13px;color:var(--muted)">No photo provided.</div>`}
+      ${p.signatureUrl ? `<div><div class="label">Signature</div><img src="${p.signatureUrl}" style="width:100%;background:#fff;border-radius:12px;border:1px solid var(--border)" alt="Signature"></div>` : `<div style="font-size:13px;color:var(--muted)">No signature captured.</div>`}
+      ${p.note ? `<div><div class="label">Delivery note</div><div style="font-size:13px;background:var(--off);padding:10px 12px;border-radius:10px">${p.note.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div></div>` : ''}
+      <div style="font-size:11px;color:var(--muted)">Completed ${p.completedAt ? fmtDate(p.completedAt) : ''}</div>
+    </div>
+  `);
+  openModal('m-pod-view');
 }
 function initSig() {
   const c = document.getElementById('sig-pad');
@@ -4025,18 +4093,31 @@ function initSig() {
   c.ontouchend=()=>sigDrawing=false;
 }
 function clearSig() { if(sigCtx){const c=document.getElementById('sig-pad');if(c)sigCtx.clearRect(0,0,c.width,c.height);} }
-function confirmPOD() {
+async function confirmPOD() {
   if (!currentPODOrderId) return;
   // Prevent double-submit
   const btn = document.querySelector('#m-pod .btn-green');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
 
-  const o = DB.orders.find(x=>x.id===currentPODOrderId);
+  const orderId = currentPODOrderId;
+  const note    = document.getElementById('pod-note')?.value || '';
+
+  // V3: upload photo + signature to Firebase Storage before flushing the order
+  const { photoUrl, signatureUrl } = await _uploadPODArtifacts(orderId);
+
+  const o = DB.orders.find(x=>x.id===orderId);
   if (o && o.status !== 'Delivered') {
-    o.status   = 'Delivered';
-    o.progress = 100;
-    o.eta      = 'Done';
+    o.status      = 'Delivered';
+    o.progress    = 100;
+    o.eta         = 'Done';
     o.deliveredAt = new Date().toISOString();
+    o.pod = {
+      photoUrl,
+      signatureUrl,
+      note,
+      completedAt: o.deliveredAt,
+      completedBy: currentUser?.id || null,
+    };
     // Credit the rider
     const rider = DB.riders.find(r=>r.id===o.riderId) || (currentUser?.role==='rider'?currentUser:null);
     if (rider) {
@@ -4048,14 +4129,15 @@ function confirmPOD() {
         currentUser.walletBalance   = rider.walletBalance;
       }
     }
-    addNotification(`✅ Order #${currentPODOrderId} marked as delivered.`);
+    addNotification(`✅ Order #${orderId} marked as delivered.`);
   }
-  const savedId = currentPODOrderId;
   currentPODOrderId = null;
+  _podPhotoFile = null;
   // Flush to Firestore immediately (skip debounce)
-  _flushToDB();
+  await _flushToDB();
   closeModal('m-pod');
-  toast('✅ Delivery confirmed! Payment credited.', 'success');
+  const proofMsg = (photoUrl || signatureUrl) ? '✅ Delivery confirmed! Proof saved.' : '✅ Delivery confirmed!';
+  toast(proofMsg, 'success');
   renderRiderDash();
   renderRiderOrders();
   if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Delivery'; }
