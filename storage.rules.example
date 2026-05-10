@@ -1,0 +1,23 @@
+// SwiftDelivery — example Firebase Storage Rules
+//
+// V3 writes proof-of-delivery artifacts (photos + signature PNGs) to
+// pod/<orderId>/*. Paste into Firebase Console → Storage → Rules.
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // POD artifacts: anyone can read (public proof links shown in the app),
+    // any client can write (no Firebase Auth in the demo). Tighten with
+    // Auth + custom claims for production.
+    match /pod/{orderId}/{file} {
+      allow read:  if true;
+      allow write: if request.resource.size < 10 * 1024 * 1024  // 10 MB cap
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
