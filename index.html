@@ -2027,6 +2027,28 @@ h2.cta-title{font-family:'Sora',sans-serif;font-size:clamp(26px,4.5vw,46px);font
   <div class="modal-body" id="m-pod-view-body"></div>
 </div></div>
 
+<!-- V3: Rate-your-rider modal (customer) -->
+<div class="modal-overlay" id="m-rate"><div class="modal" style="max-width:380px">
+  <span class="modal-pill"></span>
+  <div class="modal-hd"><h3>⭐ Rate your delivery</h3><button class="modal-x" onclick="closeModal('m-rate')">✕</button></div>
+  <div class="modal-body">
+    <div id="m-rate-rider" style="font-size:13px;color:var(--muted);margin-bottom:6px;text-align:center"></div>
+    <div class="field"><span class="label" style="text-align:center;display:block">How was your experience?</span>
+      <div id="rate-stars" style="display:flex;justify-content:center;gap:10px;font-size:38px;cursor:pointer;padding:8px 0;user-select:none">
+        <span data-star="1" onclick="_pickStar(1)">☆</span>
+        <span data-star="2" onclick="_pickStar(2)">☆</span>
+        <span data-star="3" onclick="_pickStar(3)">☆</span>
+        <span data-star="4" onclick="_pickStar(4)">☆</span>
+        <span data-star="5" onclick="_pickStar(5)">☆</span>
+      </div>
+    </div>
+    <div class="field"><span class="label">Tell us more (optional)</span>
+      <textarea class="input" id="rate-comment" rows="3" maxlength="500" placeholder="Anything to share with the team?"></textarea>
+    </div>
+    <button class="btn btn-full btn-primary mt14" onclick="submitRating()">Submit Rating</button>
+  </div>
+</div></div>
+
 <!-- Order Detail modal -->
 <div class="modal-overlay" id="m-order-detail"><div class="modal" style="max-width:480px">
   <span class="modal-pill"></span>
@@ -3176,7 +3198,7 @@ function renderHistory() {
       <td style="font-size:11px;color:var(--muted)">${fmtDate(o.createdAt)}</td>
       <td>₦${(o.amount+o.insurance).toLocaleString()}</td>
       <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
-      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button>${o.pod ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openPODView('${o.id}')">📦 POD</button>` : ''}</div></td>
+      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" onclick="openOrderDetail('${o.id}')">Details</button><button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openWaybill('${o.id}')">🖨️</button>${o.pod ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="openPODView('${o.id}')">📦 POD</button>` : ''}${(o.status==='Delivered' && !o.rating && o.riderId) ? `<button class="btn btn-sm btn-primary" style="padding:6px 9px;font-size:11px" onclick="openRatingModal('${o.id}')">⭐ Rate</button>` : ''}${o.rating ? `<span style="font-size:11px;color:#f59e0b;align-self:center;font-weight:600">★ ${o.rating.stars}</span>` : ''}</div></td>
     </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No orders found.</td></tr>`);
 }
 
@@ -4141,6 +4163,84 @@ async function confirmPOD() {
   renderRiderDash();
   renderRiderOrders();
   if (btn) { btn.disabled = false; btn.textContent = '✅ Confirm Delivery'; }
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: CUSTOMER RATINGS & REVIEWS
+// ═══════════════════════════════════════════════════════
+let _ratingOrderId = null;
+let _ratingStars   = 0;
+
+function openRatingModal(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o) return;
+  if (o.rating)               { toast('You already rated this delivery.'); return; }
+  if (o.status !== 'Delivered'){ toast('Rate only after delivery.'); return; }
+  _ratingOrderId = orderId;
+  _ratingStars = 0;
+  _drawStars(0);
+  const rider = DB.riders.find(r => r.id === o.riderId);
+  setInner('m-rate-rider', rider ? `Your rider: <strong>${rider.firstName} ${rider.lastName}</strong>` : 'Your delivery is in!');
+  const ta = document.getElementById('rate-comment');
+  if (ta) ta.value = '';
+  openModal('m-rate');
+}
+
+function _pickStar(n) {
+  _ratingStars = n;
+  _drawStars(n);
+}
+
+function _drawStars(n) {
+  const wrap = document.getElementById('rate-stars');
+  if (!wrap) return;
+  Array.from(wrap.children).forEach((el, i) => {
+    el.textContent = i < n ? '★' : '☆';
+    el.style.color = i < n ? '#f59e0b' : '#cbd5e1';
+  });
+}
+
+function submitRating() {
+  if (!_ratingOrderId) return;
+  if (!_ratingStars)  { toast('Please pick a star rating.'); return; }
+
+  const o = DB.orders.find(x => x.id === _ratingOrderId);
+  if (!o)        { closeModal('m-rate'); return; }
+  if (o.rating)  { closeModal('m-rate'); toast('Already rated.'); return; }
+
+  const comment = (document.getElementById('rate-comment')?.value || '').trim().slice(0, 500);
+
+  const review = {
+    id:         'rv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    orderId:    o.id,
+    customerId: o.customerId,
+    riderId:    o.riderId,
+    stars:      _ratingStars,
+    comment,
+    createdAt:  new Date().toISOString(),
+  };
+  DB.reviews.push(review);
+  o.rating = { stars: _ratingStars, comment, ratedAt: review.createdAt };
+
+  // Recompute rider running average from full review history (idempotent)
+  if (o.riderId) {
+    const riderReviews = DB.reviews.filter(r => r.riderId === o.riderId);
+    if (riderReviews.length) {
+      const avg = riderReviews.reduce((s, r) => s + r.stars, 0) / riderReviews.length;
+      const rounded = Math.round(avg * 10) / 10;
+      const r1 = DB.riders.find(r => r.id === o.riderId);
+      const u1 = DB.users.find(u  => u.id === o.riderId);
+      if (r1) r1.rating = rounded;
+      if (u1) u1.rating = rounded;
+    }
+  }
+
+  _ratingOrderId = null;
+  _ratingStars   = 0;
+  saveDB();
+  closeModal('m-rate');
+  toast('🙏 Thanks for the feedback!', 'success');
+  if (currentUser?.role === 'customer') { renderCustomerDash(); renderHistory(); }
 }
 
 // ═══════════════════════════════════════════════════════
