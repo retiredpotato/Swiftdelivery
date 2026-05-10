@@ -14,8 +14,14 @@
     window.SWD_MAPS_READY = true;
     if (typeof initAllAutocompletes === 'function') initAllAutocompletes();
   }
+  // V3: Paystack public test key. Public keys are safe in client code by
+  // design (Paystack secrets are server-side). Replace with your own
+  // pk_test_... from dashboard.paystack.com → Settings → API Keys.
+  window.SWD_PAYSTACK_KEY = "REPLACE_PAYSTACK_KEY";
 </script>
 <script id="gmaps-script" defer></script>
+<!-- V3: Paystack inline checkout (test mode) -->
+<script src="https://js.paystack.co/v1/inline.js" defer></script>
 <script>
   // Load Maps after page so it doesn't block render
   
@@ -2420,6 +2426,8 @@ function _attachListeners() {
   listen('orders', data => {
     if (Array.isArray(data.list)) DB.orders = data.list;
     _refreshUI();
+    // V3: surface order status changes as browser pushes when tab is hidden
+    if (typeof _v3PushOnOrdersUpdate === 'function') _v3PushOnOrdersUpdate();
     // Refresh open tracking modal — only update the status badge+progress,
     // not the entire body (that would destroy the live map canvas)
     const tm = document.getElementById('m-track');
@@ -2449,6 +2457,8 @@ function _attachListeners() {
     if (data.notifications) DB.notifications = data.notifications;
     if (data.riderNotifs)   DB.riderNotifs   = data.riderNotifs;
     if (currentUser?.role === 'rider') updateRiderNotifBadge();
+    // V3: surface new rider-notifs as browser pushes when tab is hidden
+    if (typeof _v3PushOnRiderNotifsUpdate === 'function') _v3PushOnRiderNotifsUpdate();
   });
 
   listen('reviews', data => {
@@ -3147,6 +3157,9 @@ function initCustomer() {
   loadProfile('c');
   renderCustomerDash();
   updateSendQuote();
+  // V3: ask for browser push permission so status updates surface when tab is hidden
+  setTimeout(requestPushPermission, 1500);
+  _seedPushBaseline();
 }
 
 function renderCustomerDash() {
@@ -3170,7 +3183,7 @@ function renderCustomerDash() {
       <td><div class="tbl-route">${o.fromCity}<span class="tbl-arrow"> → </span>${o.toCity}</div></td>
       <td><span class="badge ${statusColor(o.status)}">${o.status}</span></td>
       <td style="color:var(--orange);font-weight:600;font-size:12px">${o.eta}</td>
-      <td><button class="btn btn-sm btn-primary" onclick="openTrackModal('${o.id}')">Track</button></td>
+      <td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" onclick="openTrackModal('${o.id}')">Track</button>${o.paymentStatus !== 'paid' ? `<button class="btn btn-sm btn-outline" style="padding:6px 9px;font-size:11px" onclick="payNow('${o.id}')">💳 Pay</button>` : `<span style="font-size:11px;color:var(--green);align-self:center;font-weight:600">✓ Paid</span>`}</div></td>
     </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No active deliveries right now.</td></tr>`);
 
   const recent = [...myOrders].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,5);
@@ -3284,6 +3297,9 @@ function initRider() {
   renderRiderDash();
   setTimeout(updateRiderNotifBadge,100);
   startRiderGPS();
+  // V3: ask for browser push so new-order alerts fire when tab is hidden
+  setTimeout(requestPushPermission, 1500);
+  _seedPushBaseline();
 }
 
 function renderRiderDash() {
@@ -4241,6 +4257,131 @@ function submitRating() {
   closeModal('m-rate');
   toast('🙏 Thanks for the feedback!', 'success');
   if (currentUser?.role === 'customer') { renderCustomerDash(); renderHistory(); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: PAYMENTS (Paystack inline, test mode)
+// ═══════════════════════════════════════════════════════
+function payNow(orderId) {
+  const o = DB.orders.find(x => x.id === orderId);
+  if (!o)                          { toast('Order not found.'); return; }
+  if (o.paymentStatus === 'paid')  { toast('Already paid.'); return; }
+  if (typeof PaystackPop === 'undefined') {
+    toast('Payment SDK not loaded yet — try again in a moment.', 'error'); return;
+  }
+  const key = window.SWD_PAYSTACK_KEY;
+  if (!key || key === 'REPLACE_PAYSTACK_KEY') {
+    toast('Paystack key not configured. See README.', 'error'); return;
+  }
+  const customer   = DB.users.find(u => u.id === o.customerId) || currentUser || {};
+  const amountKobo = ((o.amount || 0) + (o.insurance || 0)) * 100;
+  if (amountKobo < 100) { toast('Order has no payable amount.', 'error'); return; }
+
+  const handler = PaystackPop.setup({
+    key,
+    email:    customer.email || 'demo@swiftdelivery.ng',
+    amount:   amountKobo,
+    currency: 'NGN',
+    ref:      'SWD-PAY-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+    metadata: {
+      orderId:    o.id,
+      customerId: o.customerId,
+      custom_fields: [
+        { display_name: 'Order ID', variable_name: 'order_id', value: o.id },
+      ],
+    },
+    callback: function (response) {
+      const naira = (o.amount || 0) + (o.insurance || 0);
+      o.paymentStatus = 'paid';
+      o.paymentRef    = response.reference;
+      o.paymentAmount = naira;
+      o.paidAt        = new Date().toISOString();
+      addTransaction(o.customerId, {
+        type:   'debit',
+        desc:   `Order #${o.id} (Paystack)`,
+        amount: naira,
+        date:   o.paidAt,
+        ref:    response.reference,
+      });
+      saveDB();
+      toast('✅ Payment successful!', 'success');
+      if (currentUser?.role === 'customer') {
+        renderCustomerDash();
+        if (typeof renderHistory === 'function') renderHistory();
+        if (typeof renderWallet  === 'function') renderWallet();
+      }
+    },
+    onClose: function () { /* user dismissed — no state change */ },
+  });
+  handler.openIframe();
+}
+
+// ═══════════════════════════════════════════════════════
+//  V3: BROWSER PUSH NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+//  Free, no backend: when a Firestore listener brings a state change
+//  that affects the current user, fire a Notification if the tab is
+//  hidden/unfocused. Doesn't work for closed-tab pushes (that needs
+//  FCM + service worker + Cloud Functions).
+let _pushPrevOrderStatus     = {};   // orderId → last seen status
+let _pushPrevRiderNotifCount = 0;
+
+function requestPushPermission() {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+}
+
+function _seedPushBaseline() {
+  // Snapshot current state so we don't fire pushes for orders that already exist.
+  _pushPrevOrderStatus = {};
+  if (currentUser?.role === 'customer') {
+    DB.orders
+      .filter(o => o.customerId === currentUser.id)
+      .forEach(o => { _pushPrevOrderStatus[o.id] = o.status; });
+  }
+  if (currentUser?.role === 'rider') {
+    _pushPrevRiderNotifCount = (DB.riderNotifs?.[currentUser.id] || []).length;
+  }
+}
+
+function _firePush(title, body, opts) {
+  opts = opts || {};
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  // Only push if the user can't see the tab — otherwise the in-app toast/notif is enough
+  const visible = document.visibilityState === 'visible' && document.hasFocus();
+  if (visible && !opts.alwaysShow) return;
+  try {
+    const n = new Notification(title, { body, tag: opts.tag, silent: !!opts.silent });
+    setTimeout(() => { try { n.close(); } catch (e) {} }, 8000);
+  } catch (e) { console.warn('[SWD] push failed:', e); }
+}
+
+function _v3PushOnOrdersUpdate() {
+  if (!currentUser || currentUser.role !== 'customer') return;
+  DB.orders
+    .filter(o => o.customerId === currentUser.id)
+    .forEach(o => {
+      const prev = _pushPrevOrderStatus[o.id];
+      if (prev !== undefined && prev !== o.status) {
+        _firePush(`SwiftDelivery · #${o.id}`, `Status: ${o.status}`, { tag: 'swd-order-' + o.id });
+      }
+      _pushPrevOrderStatus[o.id] = o.status;
+    });
+}
+
+function _v3PushOnRiderNotifsUpdate() {
+  if (!currentUser || currentUser.role !== 'rider') return;
+  const list = DB.riderNotifs?.[currentUser.id] || [];
+  if (list.length > _pushPrevRiderNotifCount && _pushPrevRiderNotifCount > 0) {
+    const newest = list[0];
+    if (newest && newest.msg) {
+      _firePush('SwiftDelivery', newest.msg, { tag: 'swd-rider-notif' });
+    }
+  }
+  _pushPrevRiderNotifCount = list.length;
 }
 
 // ═══════════════════════════════════════════════════════
